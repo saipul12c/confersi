@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulk Image to AVIF Converter</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- JSZip untuk mengunduh banyak file sekaligus dalam satu ZIP -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans antialiased">
+
+  <main class="flex-grow max-w-4xl w-full mx-auto px-4 py-10">
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-white tracking-tight">Bulk Konverter Gambar ke AVIF</h1>
+      <p class="text-slate-400 mt-2 text-sm">Konversi puluhan gambar langsung di browser Anda. Cepat, gratis, dan 100% privat.</p>
+    </div>
+
+    <!-- Kontrol Pengaturan Kualitas -->
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="w-full sm:w-2/3">
+        <div class="flex justify-between text-sm font-medium mb-1">
+          <label for="qualityRange" class="text-slate-300">Kualitas Kompresi AVIF</label>
+          <span id="qualityValue" class="text-indigo-400 font-bold">75%</span>
+        </div>
+        <input id="qualityRange" type="range" min="10" max="100" value="75" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+        <p class="text-xs text-slate-400 mt-1">Rekomendasi: 65% - 80% untuk keseimbangan ukuran dan ketajaman.</p>
+      </div>
+
+      <div class="flex gap-2 w-full sm:w-auto justify-end">
+        <button id="convertBtn" disabled class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-medium rounded-lg text-sm transition">
+          Konversi Semua
+        </button>
+        <button id="downloadAllBtn" class="hidden px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg text-sm transition">
+          Unduh ZIP
+        </button>
+      </div>
+    </div>
+
+    <!-- Dropzone Upload -->
+    <div id="dropzone" class="border-2 border-dashed border-slate-600 hover:border-indigo-500 bg-slate-800/50 rounded-xl p-10 text-center cursor-pointer transition">
+      <input type="file" id="fileInput" multiple accept="image/png, image/jpeg, image/webp" class="hidden">
+      <svg class="w-12 h-12 mx-auto text-slate-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+      </svg>
+      <p class="text-base font-medium text-slate-200">Klik untuk memilih gambar atau seret file ke sini</p>
+      <p class="text-xs text-slate-400 mt-1">Mendukung JPG, PNG, dan WebP dalam jumlah banyak sekaligus</p>
+    </div>
+
+    <!-- Ringkasan Status -->
+    <div id="summaryBar" class="hidden mt-6 flex items-center justify-between text-sm text-slate-300 bg-slate-800/80 px-4 py-3 rounded-lg border border-slate-700">
+      <span id="fileCountText">0 file dipilih</span>
+      <button id="clearBtn" class="text-rose-400 hover:text-rose-300 text-xs font-medium">Hapus Semua</button>
+    </div>
+
+    <!-- Daftar File -->
+    <div id="fileList" class="mt-4 space-y-2.5"></div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 py-6 text-center text-sm text-slate-400">
+    <p>&copy; 2026 <span class="text-slate-200 font-medium">Muhammad Syaiful Mukmin</span>. All rights reserved.</p>
+  </footer>
+
+  <!-- Menggunakan type="module" agar bisa mengimpor library AVIF encoder -->
+  <script type="module" src="./index.js"></script>
+</body>
+</html>
