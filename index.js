@@ -1,40 +1,108 @@
-import encode from 'https://esm.sh/@jsquash/avif@1.3.0/encode';
+// Conferti - Konverter Gambar & Video ke WebP & AVIF untuk Website
+// Dioptimalkan untuk performa tinggi (ratusan file sekaligus, hemat RAM, pembaruan DOM O(1))
 
 // Referensi Elemen DOM
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const qualityRange = document.getElementById('qualityRange');
 const qualityValue = document.getElementById('qualityValue');
+const imageFormatSelect = document.getElementById('imageFormatSelect');
+const videoModeSelect = document.getElementById('videoModeSelect');
+const videoExtraSettings = document.getElementById('videoExtraSettings');
+const videoFpsSelect = document.getElementById('videoFpsSelect');
+const videoDurationSelect = document.getElementById('videoDurationSelect');
+const videoScaleSelect = document.getElementById('videoScaleSelect');
 const convertBtn = document.getElementById('convertBtn');
 const downloadAllBtn = document.getElementById('downloadAllBtn');
 const clearBtn = document.getElementById('clearBtn');
 const summaryBar = document.getElementById('summaryBar');
 const fileCountText = document.getElementById('fileCountText');
+const globalPercentText = document.getElementById('globalPercentText');
+const globalProgressContainer = document.getElementById('globalProgressContainer');
+const globalProgressBar = document.getElementById('globalProgressBar');
+const globalStatusDot = document.getElementById('globalStatusDot');
 const fileList = document.getElementById('fileList');
 
-// State Aplikasi
-let filesQueue = []; // Menyimpan objek { id, file, status, avifBlob, newName }
+// State Antrean File
+let filesQueue = [];
+let isConverting = false;
+
+// Cache modul AVIF jika user memilih AVIF
+let avifEncodeModule = null;
+
+// Tampilkan/sembunyikan opsi video ekstra (FPS, Durasi, Skala)
+function updateVideoSettingsVisibility() {
+  if (videoModeSelect.value === 'animated_webp') {
+    videoExtraSettings.classList.remove('hidden');
+    videoExtraSettings.classList.add('flex');
+  } else {
+    videoExtraSettings.classList.remove('flex');
+    videoExtraSettings.classList.add('hidden');
+  }
+}
+
+videoModeSelect.addEventListener('change', () => {
+  updateVideoSettingsVisibility();
+  refreshQueueFilenames();
+});
+
+imageFormatSelect.addEventListener('change', () => {
+  refreshQueueFilenames();
+});
 
 // Update label kualitas slider
 qualityRange.addEventListener('input', (e) => {
   qualityValue.textContent = `${e.target.value}%`;
 });
 
-// Event Dropzone & Input File
+// Hitung nama target berdasarkan format yang dipilih
+function computeTargetFilename(item) {
+  const baseName = item.file.name.replace(/\.[^/.]+$/, '');
+  if (item.type === 'image') {
+    const ext = imageFormatSelect.value; // 'webp' atau 'avif'
+    return `${baseName}.${ext}`;
+  } else {
+    const mode = videoModeSelect.value;
+    if (mode === 'animated_webp') {
+      return `${baseName}.webp`;
+    } else if (mode === 'poster_webp') {
+      return `${baseName}-poster.webp`;
+    } else if (mode === 'webm') {
+      return `${baseName}.webm`;
+    }
+    return `${baseName}.webp`;
+  }
+}
+
+// Perbarui nama target file yang belum selesai jika user mengubah format dropdown
+function refreshQueueFilenames() {
+  filesQueue.forEach(item => {
+    if (item.status !== 'done') {
+      item.newName = computeTargetFilename(item);
+      const row = document.getElementById(`row-${item.id}`);
+      if (row) {
+        const targetEl = row.querySelector('.target-name');
+        if (targetEl) targetEl.textContent = item.newName;
+      }
+    }
+  });
+}
+
+// Event Dropzone & File Input
 dropzone.addEventListener('click', () => fileInput.click());
 
 dropzone.addEventListener('dragover', (e) => {
   e.preventDefault();
-  dropzone.classList.add('border-indigo-500', 'bg-slate-800');
+  dropzone.classList.add('border-indigo-500', 'bg-slate-800/80');
 });
 
 dropzone.addEventListener('dragleave', () => {
-  dropzone.classList.remove('border-indigo-500', 'bg-slate-800');
+  dropzone.classList.remove('border-indigo-500', 'bg-slate-800/80');
 });
 
 dropzone.addEventListener('drop', (e) => {
   e.preventDefault();
-  dropzone.classList.remove('border-indigo-500', 'bg-slate-800');
+  dropzone.classList.remove('border-indigo-500', 'bg-slate-800/80');
   handleFiles(e.dataTransfer.files);
 });
 
@@ -45,165 +113,767 @@ fileInput.addEventListener('change', (e) => {
 
 // Hapus semua daftar
 clearBtn.addEventListener('click', () => {
+  if (isConverting) {
+    if (!confirm('Proses konversi sedang berjalan. Yakin ingin membatalkan dan menghapus semua antrean?')) {
+      return;
+    }
+  }
   filesQueue = [];
-  renderList();
+  renderFullList();
+  updateGlobalStats();
 });
 
-// Menangani file yang masuk
+// Menangani file yang masuk (Gambar dan Video)
 function handleFiles(fileListInput) {
-  const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
-  const newFiles = Array.from(fileListInput).filter(file => validTypes.includes(file.type));
+  const incomingFiles = Array.from(fileListInput);
 
-  newFiles.forEach(file => {
-    const baseName = file.name.replace(/\.[^/.]+$/, '');
-    filesQueue.push({
+  incomingFiles.forEach(file => {
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|ogv)$/i.test(file.name);
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp|svg|tiff?)$/i.test(file.name);
+
+    if (!isVideo && !isImage) return;
+
+    const type = isVideo ? 'video' : 'image';
+    const item = {
       id: crypto.randomUUID(),
       file,
-      newName: `${baseName}.avif`,
+      type,
       status: 'pending', // pending | processing | done | error
-      avifBlob: null
-    });
+      resultBlob: null,
+      progress: 0,
+      errorMsg: ''
+    };
+    item.newName = computeTargetFilename(item);
+    filesQueue.push(item);
   });
 
-  renderList();
+  renderFullList();
+  updateGlobalStats();
 }
 
-// Format ukuran bytes ke KB/MB
+// Format bytes ke KB / MB / GB
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 Bytes';
+  if (!bytes || bytes === 0) return '0 Bytes';
   const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB'];
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Render daftar file ke UI
-function renderList() {
+// Render seluruh daftar file ke DOM (hanya dipanggil saat file ditambah/dihapus massal)
+function renderFullList() {
   fileList.innerHTML = '';
 
   if (filesQueue.length === 0) {
     summaryBar.classList.add('hidden');
     convertBtn.disabled = true;
     downloadAllBtn.classList.add('hidden');
+    globalProgressContainer.classList.add('hidden');
+    globalPercentText.classList.add('hidden');
     return;
   }
 
   summaryBar.classList.remove('hidden');
-  fileCountText.textContent = `${filesQueue.length} gambar siap / diproses`;
-  convertBtn.disabled = false;
 
-  const hasCompleted = filesQueue.some(item => item.status === 'done');
-  downloadAllBtn.classList.toggle('hidden', !hasCompleted);
-
+  const fragment = document.createDocumentFragment();
   filesQueue.forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'bg-slate-800 border border-slate-700 rounded-lg p-3.5 flex items-center justify-between gap-4';
+    const row = createRowElement(item);
+    fragment.appendChild(row);
+  });
+  fileList.appendChild(fragment);
+}
 
-    let statusBadge = '';
-    let actionHtml = '';
+// Buat elemen baris untuk satu file
+function createRowElement(item) {
+  const row = document.createElement('div');
+  row.id = `row-${item.id}`;
+  row.className = 'bg-slate-800/90 border border-slate-700/80 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition hover:border-slate-600';
 
-    if (item.status === 'pending') {
-      statusBadge = `<span class="text-xs px-2.5 py-1 rounded bg-slate-700 text-slate-300">Menunggu</span>`;
-    } else if (item.status === 'processing') {
-      statusBadge = `<span class="text-xs px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 animate-pulse">Mengonversi...</span>`;
-    } else if (item.status === 'done') {
-      const savedPercent = Math.round((1 - item.avifBlob.size / item.file.size) * 100);
-      const badgeColor = savedPercent > 0 ? 'text-emerald-400' : 'text-slate-400';
-      statusBadge = `
-        <div class="text-right">
-          <span class="text-xs font-semibold ${badgeColor}">${formatBytes(item.avifBlob.size)} (${savedPercent > 0 ? '-' + savedPercent + '%' : 'Selesai'})</span>
-        </div>
-      `;
-      const downloadUrl = URL.createObjectURL(item.avifBlob);
-      actionHtml = `
-        <a href="${downloadUrl}" download="${item.newName}" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-xs font-medium text-white rounded transition">
-          Unduh
-        </a>
-      `;
-    } else if (item.status === 'error') {
-      statusBadge = `<span class="text-xs px-2.5 py-1 rounded bg-rose-500/20 text-rose-400">Gagal</span>`;
-    }
+  const isVideo = item.type === 'video';
+  const isLarge = item.file.size >= 1024 * 1024 * 1024; // >= 1GB
+  const isMediumLarge = item.file.size >= 300 * 1024 * 1024; // >= 300MB
 
-    row.innerHTML = `
-      <div class="min-w-0 flex-1">
-        <p class="text-sm font-medium text-slate-200 truncate">${item.file.name}</p>
-        <p class="text-xs text-slate-400">Asli: ${formatBytes(item.file.size)} &rarr; <span class="text-indigo-400">${item.newName}</span></p>
+  const typeBadge = isVideo
+    ? `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30">Video</span>`
+    : `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Gambar</span>`;
+
+  const sizeBadge = isLarge
+    ? `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">File Raksasa (&gt;1 GB)</span>`
+    : (isMediumLarge ? `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-700 text-slate-300">File Besar</span>` : '');
+
+  row.innerHTML = `
+    <div class="min-w-0 flex-1 flex items-start gap-3">
+      <div class="p-2 rounded-lg bg-slate-900 border border-slate-700/60 text-slate-400 shrink-0 mt-0.5">
+        ${isVideo ? `
+          <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        ` : `
+          <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        `}
       </div>
-      <div class="flex items-center gap-3 shrink-0">
-        ${statusBadge}
-        ${actionHtml}
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2 flex-wrap">
+          <p class="text-sm font-semibold text-slate-200 truncate max-w-xs sm:max-w-md">${item.file.name}</p>
+          ${typeBadge}
+          ${sizeBadge}
+        </div>
+        <p class="text-xs text-slate-400 mt-0.5">
+          Asli: <span class="text-slate-300">${formatBytes(item.file.size)}</span> &rarr; Target: <span class="target-name text-indigo-400 font-medium">${item.newName}</span>
+        </p>
+        <p class="error-msg-box text-[11px] text-rose-400 mt-1 hidden"></p>
+      </div>
+    </div>
+    <div class="row-actions flex items-center gap-2.5 shrink-0 self-end sm:self-center">
+      <div class="status-badge-slot">
+        <span class="text-xs px-2.5 py-1 rounded bg-slate-700/80 text-slate-300 font-medium">Menunggu</span>
+      </div>
+      <div class="action-btn-slot"></div>
+      <button class="remove-btn p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-700/50 rounded-lg transition" title="Hapus dari daftar">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+    </div>
+  `;
+
+  // Listener tombol hapus satuan
+  row.querySelector('.remove-btn').addEventListener('click', () => {
+    filesQueue = filesQueue.filter(f => f.id !== item.id);
+    row.remove();
+    updateGlobalStats();
+  });
+
+  return row;
+}
+
+// Pembaruan baris O(1) cepat tanpa me-render ulang seluruh daftar
+function updateItemRow(item) {
+  const row = document.getElementById(`row-${item.id}`);
+  if (!row) return;
+
+  const statusSlot = row.querySelector('.status-badge-slot');
+  const actionSlot = row.querySelector('.action-btn-slot');
+  const errorBox = row.querySelector('.error-msg-box');
+
+  if (item.status === 'pending') {
+    statusSlot.innerHTML = `<span class="text-xs px-2.5 py-1 rounded bg-slate-700/80 text-slate-300 font-medium">Menunggu</span>`;
+    actionSlot.innerHTML = '';
+    errorBox.classList.add('hidden');
+  } else if (item.status === 'processing') {
+    const pctText = item.progress > 0 ? ` (${item.progress}%)` : '';
+    statusSlot.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+        <span class="text-xs px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 font-medium animate-pulse">
+          Mengonversi${pctText}...
+        </span>
+      </div>
+    `;
+    actionSlot.innerHTML = '';
+    errorBox.classList.add('hidden');
+  } else if (item.status === 'done') {
+    const savedPercent = Math.round((1 - item.resultBlob.size / item.file.size) * 100);
+    const isSmaller = savedPercent > 0;
+    const badgeColor = isSmaller ? 'text-emerald-400' : 'text-slate-300';
+    const changeText = isSmaller ? `-${savedPercent}%` : `+${Math.abs(savedPercent)}%`;
+
+    statusSlot.innerHTML = `
+      <div class="text-left sm:text-right">
+        <span class="text-xs font-semibold ${badgeColor}">
+          ${formatBytes(item.resultBlob.size)} <span class="text-[11px] font-normal text-slate-400">(${changeText})</span>
+        </span>
       </div>
     `;
 
-    fileList.appendChild(row);
+    const downloadUrl = URL.createObjectURL(item.resultBlob);
+    actionSlot.innerHTML = `
+      <a href="${downloadUrl}" download="${item.newName}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white rounded-lg transition shadow-sm">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+        </svg>
+        Unduh
+      </a>
+    `;
+    errorBox.classList.add('hidden');
+  } else if (item.status === 'error') {
+    statusSlot.innerHTML = `<span class="text-xs px-2.5 py-1 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">Gagal</span>`;
+    actionSlot.innerHTML = '';
+    if (item.errorMsg) {
+      errorBox.textContent = item.errorMsg;
+      errorBox.classList.remove('hidden');
+    }
+  }
+
+  updateGlobalStats();
+}
+
+// Update statistik ringkasan dan progress bar global
+function updateGlobalStats() {
+  const total = filesQueue.length;
+  if (total === 0) {
+    summaryBar.classList.add('hidden');
+    convertBtn.disabled = true;
+    downloadAllBtn.classList.add('hidden');
+    globalProgressContainer.classList.add('hidden');
+    globalPercentText.classList.add('hidden');
+    return;
+  }
+
+  summaryBar.classList.remove('hidden');
+  const countDone = filesQueue.filter(item => item.status === 'done').length;
+  const countError = filesQueue.filter(item => item.status === 'error').length;
+  const countProcessed = countDone + countError;
+
+  let text = `${total} file dipilih`;
+  if (countProcessed > 0) {
+    text += ` (${countDone} selesai${countError > 0 ? `, ${countError} gagal` : ''})`;
+  }
+  fileCountText.textContent = text;
+
+  // Global progress bar
+  if (isConverting || countProcessed > 0) {
+    globalProgressContainer.classList.remove('hidden');
+    globalPercentText.classList.remove('hidden');
+    const percent = Math.round((countProcessed / total) * 100);
+    globalProgressBar.style.width = `${percent}%`;
+    globalPercentText.textContent = `${percent}%`;
+  }
+
+  // Tombol Unduh ZIP
+  downloadAllBtn.classList.toggle('hidden', countDone === 0);
+
+  // Status tombol konversi
+  if (!isConverting) {
+    convertBtn.disabled = countDone === total;
+  }
+}
+
+// -------------------------------------------------------------
+// KONVERSI GAMBAR (DENGAN PEMBERSIHAN MEMORI GPU/VRAM)
+// -------------------------------------------------------------
+async function convertImageToWebP(file, quality) {
+  const bitmap = await createImageBitmap(file);
+  let w = bitmap.width;
+  let h = bitmap.height;
+
+  // Batas kanvas aman browser (maks 16.384px) agar tidak out-of-memory
+  const MAX_DIM = 16384;
+  if (w > MAX_DIM || h > MAX_DIM) {
+    const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+    w = Math.round(w * ratio);
+    h = Math.round(h * ratio);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      // Bebaskan memori backing store canvas segera
+      canvas.width = 0;
+      canvas.height = 0;
+
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error('Gagal mengonversi gambar ke WebP'));
+      }
+    }, 'image/webp', quality / 100);
   });
 }
 
-// Mengubah File gambar menjadi ImageData menggunakan Canvas
-async function fileToImageData(file) {
+// Konversi Gambar ke AVIF (menggunakan WebAssembly @jsquash/avif)
+async function convertImageToAvif(file, quality) {
+  if (!avifEncodeModule) {
+    const mod = await import('https://esm.sh/@jsquash/avif@1.3.0/encode');
+    avifEncodeModule = mod.default;
+  }
+
   const bitmap = await createImageBitmap(file);
+  let w = bitmap.width;
+  let h = bitmap.height;
+
+  const MAX_DIM = 8192; // Batas aman encode AVIF
+  if (w > MAX_DIM || h > MAX_DIM) {
+    const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+    w = Math.round(w * ratio);
+    h = Math.round(h * ratio);
+  }
+
   const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, 0, 0);
-  return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  // Bebaskan memori canvas segera
+  canvas.width = 0;
+  canvas.height = 0;
+
+  const avifBuffer = await avifEncodeModule(imageData, {
+    quality: quality,
+    speed: 6
+  });
+
+  return new Blob([avifBuffer], { type: 'image/avif' });
 }
 
-// Proses Konversi Massal (Satu per satu agar memori browser tetap aman)
+// -------------------------------------------------------------
+// KONVERSI VIDEO: Ekstraksi Subchunk & Muxing WebP Animasi
+// -------------------------------------------------------------
+function extractFrameSubChunks(uint8) {
+  const view = new DataView(uint8.buffer, uint8.byteOffset, uint8.byteLength);
+  let offset = 12; // Lewati 'RIFF' (4), FileSize (4), 'WEBP' (4)
+  const subChunks = [];
+  let hasAlpha = false;
+
+  while (offset + 8 <= uint8.length) {
+    const fourCC = String.fromCharCode(
+      uint8[offset],
+      uint8[offset + 1],
+      uint8[offset + 2],
+      uint8[offset + 3]
+    );
+    const chunkSize = view.getUint32(offset + 4, true);
+    const paddedSize = chunkSize + (chunkSize % 2);
+    const totalLength = 8 + paddedSize;
+
+    if (fourCC === 'VP8X') {
+      const flags = uint8[offset + 8];
+      if (flags & 0x10) hasAlpha = true;
+    } else if (fourCC === 'ALPH' || fourCC === 'VP8 ' || fourCC === 'VP8L') {
+      if (fourCC === 'ALPH') hasAlpha = true;
+      subChunks.push(uint8.slice(offset, offset + totalLength));
+    }
+
+    offset += totalLength;
+  }
+
+  return { subChunks, hasAlpha };
+}
+
+function assembleAnimatedWebP(frames, width, height, loopCount = 0) {
+  const anyAlpha = frames.some(f => f.hasAlpha);
+
+  const preparedFrames = frames.map(f => {
+    let subChunksLen = 0;
+    for (const sc of f.subChunks) subChunksLen += sc.length;
+
+    const payloadSize = 16 + subChunksLen;
+    const padding = payloadSize % 2;
+    const totalChunkLen = 8 + payloadSize + padding;
+
+    return {
+      frame: f,
+      payloadSize,
+      padding,
+      totalChunkLen
+    };
+  });
+
+  const anmfTotalBytes = preparedFrames.reduce((acc, pf) => acc + pf.totalChunkLen, 0);
+  const totalFileSize = 12 + 18 + 14 + anmfTotalBytes;
+  const buffer = new Uint8Array(totalFileSize);
+  const view = new DataView(buffer.buffer);
+
+  let offset = 0;
+
+  // 1. RIFF Header
+  buffer.set([0x52, 0x49, 0x46, 0x46], offset); // 'RIFF'
+  view.setUint32(offset + 4, totalFileSize - 8, true);
+  buffer.set([0x57, 0x45, 0x42, 0x50], offset + 8); // 'WEBP'
+  offset += 12;
+
+  // 2. VP8X Extended Header Chunk
+  buffer.set([0x56, 0x50, 0x38, 0x58], offset); // 'VP8X'
+  view.setUint32(offset + 4, 10, true);
+  buffer[offset + 8] = 0x02 | (anyAlpha ? 0x10 : 0);
+  buffer[offset + 9] = 0;
+  buffer[offset + 10] = 0;
+  buffer[offset + 11] = 0;
+  const wm1 = width - 1;
+  buffer[offset + 12] = wm1 & 0xFF;
+  buffer[offset + 13] = (wm1 >> 8) & 0xFF;
+  buffer[offset + 14] = (wm1 >> 16) & 0xFF;
+  const hm1 = height - 1;
+  buffer[offset + 15] = hm1 & 0xFF;
+  buffer[offset + 16] = (hm1 >> 8) & 0xFF;
+  buffer[offset + 17] = (hm1 >> 16) & 0xFF;
+  offset += 18;
+
+  // 3. ANIM Chunk
+  buffer.set([0x41, 0x4E, 0x49, 0x4D], offset); // 'ANIM'
+  view.setUint32(offset + 4, 6, true);
+  buffer[offset + 8] = 0;
+  buffer[offset + 9] = 0;
+  buffer[offset + 10] = 0;
+  buffer[offset + 11] = 0;
+  view.setUint16(offset + 12, loopCount, true);
+  offset += 14;
+
+  // 4. ANMF Chunks
+  for (const pf of preparedFrames) {
+    buffer.set([0x41, 0x4E, 0x4D, 0x46], offset); // 'ANMF'
+    view.setUint32(offset + 4, pf.payloadSize, true);
+
+    buffer[offset + 8] = 0;
+    buffer[offset + 9] = 0;
+    buffer[offset + 10] = 0;
+    buffer[offset + 11] = 0;
+    buffer[offset + 12] = 0;
+    buffer[offset + 13] = 0;
+    buffer[offset + 14] = wm1 & 0xFF;
+    buffer[offset + 15] = (wm1 >> 8) & 0xFF;
+    buffer[offset + 16] = (wm1 >> 16) & 0xFF;
+    buffer[offset + 17] = hm1 & 0xFF;
+    buffer[offset + 18] = (hm1 >> 8) & 0xFF;
+    buffer[offset + 19] = (hm1 >> 16) & 0xFF;
+    const dur = pf.frame.duration || 100;
+    buffer[offset + 20] = dur & 0xFF;
+    buffer[offset + 21] = (dur >> 8) & 0xFF;
+    buffer[offset + 22] = (dur >> 16) & 0xFF;
+    buffer[offset + 23] = 0x01; // overwrite
+
+    let subOffset = offset + 24;
+    for (const sc of pf.frame.subChunks) {
+      buffer.set(sc, subOffset);
+      subOffset += sc.length;
+    }
+
+    if (pf.padding) {
+      buffer[subOffset] = 0;
+    }
+
+    offset += pf.totalChunkLen;
+  }
+
+  return new Blob([buffer], { type: 'image/webp' });
+}
+
+// Konversi Video ke Animasi WebP (.webp)
+async function convertVideoToAnimatedWebP(file, { quality = 80, fps = 12, maxDuration = 10, scale = 1, onProgress }) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    const videoUrl = URL.createObjectURL(file);
+    video.src = videoUrl;
+
+    video.onloadedmetadata = async () => {
+      try {
+        const vidDuration = video.duration && !isNaN(video.duration) ? video.duration : maxDuration;
+        const duration = Math.min(vidDuration, maxDuration);
+        const frameInterval = 1 / fps;
+        const totalFrames = Math.max(1, Math.floor(duration * fps));
+
+        let w = Math.round(video.videoWidth * scale);
+        let h = Math.round(video.videoHeight * scale);
+        if (w % 2 !== 0) w--;
+        if (h % 2 !== 0) h--;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        const frameDelayMs = Math.round(1000 / fps);
+        const frames = [];
+
+        for (let i = 0; i < totalFrames; i++) {
+          const targetTime = i * frameInterval;
+          video.currentTime = targetTime;
+
+          await new Promise((resSeek) => {
+            const onSeeked = () => {
+              video.removeEventListener('seeked', onSeeked);
+              resSeek();
+            };
+            video.addEventListener('seeked', onSeeked);
+          });
+
+          ctx.drawImage(video, 0, 0, w, h);
+
+          const frameBlob = await new Promise(r => canvas.toBlob(r, 'image/webp', quality / 100));
+          const arrayBuffer = await frameBlob.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuffer);
+
+          const extracted = extractFrameSubChunks(uint8);
+          frames.push({
+            subChunks: extracted.subChunks,
+            hasAlpha: extracted.hasAlpha,
+            duration: frameDelayMs
+          });
+
+          if (onProgress) {
+            onProgress(Math.round(((i + 1) / totalFrames) * 100));
+          }
+        }
+
+        // Bersihkan memori canvas & video
+        canvas.width = 0;
+        canvas.height = 0;
+        URL.revokeObjectURL(videoUrl);
+        video.src = '';
+
+        const animatedWebpBlob = assembleAnimatedWebP(frames, w, h, 0);
+        resolve(animatedWebpBlob);
+      } catch (err) {
+        URL.revokeObjectURL(videoUrl);
+        reject(err);
+      }
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(videoUrl);
+      reject(new Error('Format video tidak didukung atau video rusak.'));
+    };
+  });
+}
+
+// Konversi Video ke Poster Cover Gambar WebP (.webp)
+async function convertVideoToPosterWebP(file, quality) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    const videoUrl = URL.createObjectURL(file);
+    video.src = videoUrl;
+
+    video.onloadedmetadata = () => {
+      video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
+    };
+
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        URL.revokeObjectURL(videoUrl);
+
+        canvas.toBlob((blob) => {
+          canvas.width = 0;
+          canvas.height = 0;
+          if (blob) resolve(blob);
+          else reject(new Error('Gagal mengekspor poster WebP'));
+        }, 'image/webp', quality / 100);
+      } catch (err) {
+        URL.revokeObjectURL(videoUrl);
+        reject(err);
+      }
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(videoUrl);
+      reject(new Error('Gagal memuat file video'));
+    };
+  });
+}
+
+// Konversi Video ke WebM
+async function convertVideoToWebM(file, onProgress) {
+  if (file.type === 'video/webm' || file.name.endsWith('.webm')) {
+    return file;
+  }
+
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const videoUrl = URL.createObjectURL(file);
+    video.src = videoUrl;
+    video.muted = true;
+
+    video.onloadedmetadata = async () => {
+      try {
+        const stream = video.captureStream ? video.captureStream() : (video.mozCaptureStream ? video.mozCaptureStream() : null);
+        if (!stream) {
+          URL.revokeObjectURL(videoUrl);
+          throw new Error('captureStream tidak didukung oleh browser Anda.');
+        }
+
+        let mimeType = 'video/webm;codecs=vp9';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'video/webm;codecs=vp8';
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'video/webm';
+          }
+        }
+
+        const recorder = new MediaRecorder(stream, { mimeType });
+        const chunks = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const webmBlob = new Blob(chunks, { type: 'video/webm' });
+          URL.revokeObjectURL(videoUrl);
+          resolve(webmBlob);
+        };
+
+        video.ontimeupdate = () => {
+          if (video.duration && onProgress) {
+            onProgress(Math.round((video.currentTime / video.duration) * 100));
+          }
+        };
+
+        recorder.start();
+        await video.play();
+
+        video.onended = () => {
+          recorder.stop();
+        };
+      } catch (err) {
+        URL.revokeObjectURL(videoUrl);
+        reject(err);
+      }
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(videoUrl);
+      reject(new Error('Gagal membaca data video'));
+    };
+  });
+}
+
+// -------------------------------------------------------------
+// PROSES KONVERSI MASSAL (SEKUENSIAL & AMAN MEMORI)
+// -------------------------------------------------------------
 convertBtn.addEventListener('click', async () => {
+  if (isConverting) return;
+  isConverting = true;
+
   const quality = parseInt(qualityRange.value, 10);
+  const imageFormat = imageFormatSelect.value;
+  const videoMode = videoModeSelect.value;
+  const videoFps = parseInt(videoFpsSelect.value, 10);
+  const videoDuration = parseInt(videoDurationSelect.value, 10);
+  const videoScale = parseFloat(videoScaleSelect.value);
+
   convertBtn.disabled = true;
-  convertBtn.textContent = 'Sedang Memproses...';
+  globalStatusDot.classList.add('animate-ping');
+  convertBtn.innerHTML = `
+    <span class="inline-flex items-center gap-2">
+      <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+      </svg>
+      Sedang Mengonversi...
+    </span>
+  `;
 
   for (let item of filesQueue) {
     if (item.status === 'done') continue;
 
     item.status = 'processing';
-    renderList();
+    item.progress = 0;
+    item.errorMsg = '';
+    updateItemRow(item);
 
     try {
-      const imageData = await fileToImageData(item.file);
-      // Encode ke AVIF menggunakan WebAssembly
-      const avifBuffer = await encode(imageData, {
-        quality: quality,
-        speed: 6 // Skala 0 (paling lambat/kecil) - 10 (paling cepat). 6 adalah standar ideal.
-      });
+      if (item.type === 'image') {
+        if (imageFormat === 'webp') {
+          item.resultBlob = await convertImageToWebP(item.file, quality);
+        } else {
+          item.resultBlob = await convertImageToAvif(item.file, quality);
+        }
+      } else {
+        // Video
+        if (videoMode === 'animated_webp') {
+          item.resultBlob = await convertVideoToAnimatedWebP(item.file, {
+            quality,
+            fps: videoFps,
+            maxDuration: videoDuration,
+            scale: videoScale,
+            onProgress: (pct) => {
+              item.progress = pct;
+              updateItemRow(item);
+            }
+          });
+        } else if (videoMode === 'poster_webp') {
+          item.resultBlob = await convertVideoToPosterWebP(item.file, quality);
+        } else if (videoMode === 'webm') {
+          item.resultBlob = await convertVideoToWebM(item.file, (pct) => {
+            item.progress = pct;
+            updateItemRow(item);
+          });
+        }
+      }
 
-      item.avifBlob = new Blob([avifBuffer], { type: 'image/avif' });
       item.status = 'done';
     } catch (err) {
       console.error('Error konversi:', item.file.name, err);
       item.status = 'error';
+      item.errorMsg = err.message || 'Gagal memproses file';
     }
 
-    renderList();
+    updateItemRow(item);
+
+    // Beri jeda 1 tick agar browser dapat membersihkan memori dan me-render animasi dengan mulus
+    await new Promise(r => setTimeout(r, 10));
   }
 
+  isConverting = false;
+  globalStatusDot.classList.remove('animate-ping');
   convertBtn.textContent = 'Konversi Semua';
-  convertBtn.disabled = false;
+  updateGlobalStats();
 });
 
-// Mengunduh semua hasil konversi dalam satu file ZIP
+// -------------------------------------------------------------
+// UNDUH SEMUA DALAM FORMAT ZIP (DENGAN PROGRESS BAR)
+// -------------------------------------------------------------
 downloadAllBtn.addEventListener('click', async () => {
-  const zip = new JSZip();
-  const completedItems = filesQueue.filter(item => item.status === 'done' && item.avifBlob);
-
+  const completedItems = filesQueue.filter(item => item.status === 'done' && item.resultBlob);
   if (completedItems.length === 0) return;
 
-  downloadAllBtn.textContent = 'Membuat ZIP...';
+  const totalSize = completedItems.reduce((acc, it) => acc + (it.resultBlob ? it.resultBlob.size : 0), 0);
+  if (totalSize > 1.5 * 1024 * 1024 * 1024) { // > 1.5 GB
+    const proceed = confirm(
+      `Peringatan: Total ukuran file hasil konversi mencapai ${formatBytes(totalSize)}. ` +
+      `Membuat file ZIP di atas 1.5 GB di dalam browser dapat membebani memori RAM dan berisiko gagal di beberapa perangkat. ` +
+      `Apakah Anda tetap ingin mencoba membuat ZIP? (Atau klik Batal untuk mengunduh file secara bertahap / satu per satu).`
+    );
+    if (!proceed) return;
+  }
+
+  const originalText = downloadAllBtn.textContent;
+  downloadAllBtn.textContent = 'Menyiapkan ZIP (0%)...';
   downloadAllBtn.disabled = true;
 
-  completedItems.forEach(item => {
-    zip.file(item.newName, item.avifBlob);
-  });
+  try {
+    const zip = new JSZip();
 
-  const zipBlob = await zip.generateAsync({ type: 'blob' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(zipBlob);
-  link.download = `gambar-avif-${Date.now()}.zip`;
-  link.click();
+    completedItems.forEach(item => {
+      zip.file(item.newName, item.resultBlob);
+    });
 
-  downloadAllBtn.textContent = 'Unduh ZIP';
-  downloadAllBtn.disabled = false;
+    const zipBlob = await zip.generateAsync({ type: 'blob' }, (metadata) => {
+      downloadAllBtn.textContent = `Menyiapkan ZIP (${Math.round(metadata.percent)}%)...`;
+    });
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(zipBlob);
+    link.download = `conferti-export-${Date.now()}.zip`;
+    link.click();
+  } catch (err) {
+    console.error('Gagal membuat ZIP:', err);
+    alert('Terjadi kesalahan saat membuat file ZIP.');
+  } finally {
+    downloadAllBtn.textContent = originalText;
+    downloadAllBtn.disabled = false;
+  }
 });
+
+// Inisialisasi awal tampilan pengaturan
+updateVideoSettingsVisibility();
