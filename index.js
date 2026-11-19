@@ -14,6 +14,15 @@ const videoDurationSelect = document.getElementById('videoDurationSelect');
 const videoScaleSelect = document.getElementById('videoScaleSelect');
 const convertBtn = document.getElementById('convertBtn');
 const downloadAllBtn = document.getElementById('downloadAllBtn');
+const downloadDirectTopBtn = document.getElementById('downloadDirectTopBtn');
+const downloadSection = document.getElementById('downloadSection');
+const completedCountText = document.getElementById('completedCountText');
+const totalSavedText = document.getElementById('totalSavedText');
+const downloadZipBtn = document.getElementById('downloadZipBtn');
+const downloadDirectBtn = document.getElementById('downloadDirectBtn');
+const bottomDownloadBar = document.getElementById('bottomDownloadBar');
+const bottomDownloadZipBtn = document.getElementById('bottomDownloadZipBtn');
+const bottomDownloadDirectBtn = document.getElementById('bottomDownloadDirectBtn');
 const clearBtn = document.getElementById('clearBtn');
 const summaryBar = document.getElementById('summaryBar');
 const fileCountText = document.getElementById('fileCountText');
@@ -22,22 +31,122 @@ const globalProgressContainer = document.getElementById('globalProgressContainer
 const globalProgressBar = document.getElementById('globalProgressBar');
 const globalStatusDot = document.getElementById('globalStatusDot');
 const fileList = document.getElementById('fileList');
+const toastContainer = document.getElementById('toastContainer');
+const uploadRequirementHint = document.getElementById('uploadRequirementHint');
 
 // State Antrean File
 let filesQueue = [];
 let isConverting = false;
 
+// Sistem Notifikasi Toast Profesional
+function showToast(title, message, type = 'success', duration = 4500) {
+  if (!toastContainer) return;
+
+  const toast = document.createElement('div');
+  toast.className = `pointer-events-auto transform transition-all duration-300 ease-out translate-y-3 opacity-0 flex items-start gap-3 p-3.5 sm:p-4 rounded-xl border shadow-xl backdrop-blur-md ${
+    type === 'success'
+      ? 'bg-slate-900/95 border-emerald-500/50 text-slate-100 shadow-emerald-500/10'
+      : type === 'warning'
+      ? 'bg-slate-900/95 border-amber-500/50 text-slate-100 shadow-amber-500/10'
+      : 'bg-slate-900/95 border-rose-500/50 text-slate-100 shadow-rose-500/10'
+  }`;
+
+  const iconSvg = type === 'success'
+    ? `<div class="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+       </div>`
+    : type === 'warning'
+    ? `<div class="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 shrink-0">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+        </svg>
+       </div>`
+    : `<div class="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 shrink-0">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+       </div>`;
+
+  toast.innerHTML = `
+    ${iconSvg}
+    <div class="flex-1 min-w-0 pt-0.5">
+      <p class="text-xs font-bold ${type === 'success' ? 'text-emerald-400' : type === 'warning' ? 'text-amber-400' : 'text-rose-400'}">${title}</p>
+      <div class="text-xs text-slate-300 mt-0.5 leading-relaxed">${message}</div>
+    </div>
+    <button class="toast-close text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  `;
+
+  toastContainer.appendChild(toast);
+
+  // Animasi masuk
+  requestAnimationFrame(() => {
+    toast.classList.remove('translate-y-3', 'opacity-0');
+  });
+
+  const removeToast = () => {
+    toast.classList.add('translate-y-3', 'opacity-0');
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  toast.querySelector('.toast-close').addEventListener('click', removeToast);
+
+  if (duration > 0) {
+    setTimeout(removeToast, duration);
+  }
+}
+
 // Cache modul AVIF jika user memilih AVIF
 let avifEncodeModule = null;
 
-// Tampilkan/sembunyikan opsi video ekstra (FPS, Durasi, Skala)
+const videoModeExplainer = document.getElementById('videoModeExplainer');
+const imageSettingsBox = document.getElementById('imageSettingsBox');
+const videoSettingsBox = document.getElementById('videoSettingsBox');
+
+// Format note helper
+function getFormatNote(item) {
+  if (item.type === 'image') {
+    const ext = imageFormatSelect.value.toUpperCase();
+    return `<span class="text-[11px] text-indigo-400 font-medium">(${ext})</span>`;
+  } else {
+    const mode = videoModeSelect.value;
+    if (mode === 'webm') {
+      return `<span class="text-[11px] text-sky-400 font-medium">(Video Web dengan Suara)</span>`;
+    } else if (mode === 'animated_webp') {
+      return `<span class="text-[11px] text-indigo-400 font-medium">(Animasi WebP Looping)</span>`;
+    } else if (mode === 'poster_webp') {
+      return `<span class="text-[11px] text-emerald-400 font-medium">(Cover Poster WebP)</span>`;
+    }
+  }
+  return '';
+}
+
+// Tampilkan/sembunyikan opsi video ekstra (FPS, Durasi, Skala) & penjelasan mode
 function updateVideoSettingsVisibility() {
-  if (videoModeSelect.value === 'animated_webp') {
+  const mode = videoModeSelect.value;
+  if (mode === 'animated_webp') {
     videoExtraSettings.classList.remove('hidden');
     videoExtraSettings.classList.add('flex');
+    if (videoModeExplainer) {
+      videoModeExplainer.textContent = 'Format animasi looping (.webp) tanpa suara. Ideal untuk pengganti GIF, klip pendek, atau hero banner.';
+    }
+  } else if (mode === 'poster_webp') {
+    videoExtraSettings.classList.remove('flex');
+    videoExtraSettings.classList.add('hidden');
+    if (videoModeExplainer) {
+      videoModeExplainer.textContent = 'Mengambil 1 frame cuplikan video menjadi gambar WebP tajam untuk cover poster video di web.';
+    }
   } else {
     videoExtraSettings.classList.remove('flex');
     videoExtraSettings.classList.add('hidden');
+    if (videoModeExplainer) {
+      videoModeExplainer.textContent = 'Format video web Google dengan suara & durasi penuh. Sangat cocok untuk video rapat atau presentasi.';
+    }
   }
 }
 
@@ -83,6 +192,8 @@ function refreshQueueFilenames() {
       if (row) {
         const targetEl = row.querySelector('.target-name');
         if (targetEl) targetEl.textContent = item.newName;
+        const noteEl = row.querySelector('.target-note');
+        if (noteEl) noteEl.innerHTML = getFormatNote(item);
       }
     }
   });
@@ -127,11 +238,23 @@ clearBtn.addEventListener('click', () => {
 function handleFiles(fileListInput) {
   const incomingFiles = Array.from(fileListInput);
 
+  if (incomingFiles.length === 0) return;
+
+  let addedImageCount = 0;
+  let addedVideoCount = 0;
+  let rejectedCount = 0;
+
   incomingFiles.forEach(file => {
     const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|ogv)$/i.test(file.name);
     const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp|svg|tiff?)$/i.test(file.name);
 
-    if (!isVideo && !isImage) return;
+    if (!isVideo && !isImage) {
+      rejectedCount++;
+      return;
+    }
+
+    if (isVideo) addedVideoCount++;
+    if (isImage) addedImageCount++;
 
     const type = isVideo ? 'video' : 'image';
     const item = {
@@ -146,6 +269,36 @@ function handleFiles(fileListInput) {
     item.newName = computeTargetFilename(item);
     filesQueue.push(item);
   });
+
+  const totalAdded = addedImageCount + addedVideoCount;
+
+  if (totalAdded > 0) {
+    // Efek visual dropzone berhasil menerima file
+    dropzone.classList.remove('border-slate-600');
+    dropzone.classList.add('border-emerald-500', 'bg-emerald-500/10');
+    setTimeout(() => {
+      dropzone.classList.remove('border-emerald-500', 'bg-emerald-500/10');
+      dropzone.classList.add('border-slate-600');
+    }, 1200);
+
+    const details = [];
+    if (addedImageCount > 0) details.push(`<strong>${addedImageCount}</strong> gambar`);
+    if (addedVideoCount > 0) details.push(`<strong>${addedVideoCount}</strong> video`);
+
+    let messageHtml = `Berhasil memuat <strong>${totalAdded} file</strong> (${details.join(', ')}) ke browser. Tombol dan fitur konversi sekarang <strong>aktif & siap digunakan!</strong>`;
+    if (rejectedCount > 0) {
+      messageHtml += `<br><span class="text-amber-300">Catatan: ${rejectedCount} file diabaikan karena bukan format gambar/video yang didukung.</span>`;
+    }
+
+    showToast('Upload Berhasil!', messageHtml, 'success', 5000);
+  } else {
+    showToast(
+      'Gagal Mengupload File',
+      'Format file tidak didukung. Mohon pilih file gambar (JPG, PNG, WebP, AVIF, GIF) atau video (MP4, WebM, MOV, MKV). Fitur konversi hanya akan aktif setelah file berhasil diupload.',
+      'error',
+      5500
+    );
+  }
 
   renderFullList();
   updateGlobalStats();
@@ -168,6 +321,9 @@ function renderFullList() {
     summaryBar.classList.add('hidden');
     convertBtn.disabled = true;
     downloadAllBtn.classList.add('hidden');
+    if (downloadDirectTopBtn) downloadDirectTopBtn.classList.add('hidden');
+    if (downloadSection) downloadSection.classList.add('hidden');
+    if (bottomDownloadBar) bottomDownloadBar.classList.add('hidden');
     globalProgressContainer.classList.add('hidden');
     globalPercentText.classList.add('hidden');
     return;
@@ -221,7 +377,7 @@ function createRowElement(item) {
           ${sizeBadge}
         </div>
         <p class="text-xs text-slate-400 mt-0.5">
-          Asli: <span class="text-slate-300">${formatBytes(item.file.size)}</span> &rarr; Target: <span class="target-name text-indigo-400 font-medium">${item.newName}</span>
+          Asli: <span class="text-slate-300">${formatBytes(item.file.size)}</span> &rarr; Target: <span class="target-name text-indigo-400 font-semibold">${item.newName}</span> <span class="target-note">${getFormatNote(item)}</span>
         </p>
         <p class="error-msg-box text-[11px] text-rose-400 mt-1 hidden"></p>
       </div>
@@ -317,21 +473,72 @@ function updateGlobalStats() {
     summaryBar.classList.add('hidden');
     convertBtn.disabled = true;
     downloadAllBtn.classList.add('hidden');
+    if (downloadDirectTopBtn) downloadDirectTopBtn.classList.add('hidden');
+    if (downloadSection) downloadSection.classList.add('hidden');
+    if (bottomDownloadBar) bottomDownloadBar.classList.add('hidden');
     globalProgressContainer.classList.add('hidden');
     globalPercentText.classList.add('hidden');
+    if (videoSettingsBox) videoSettingsBox.classList.remove('ring-2', 'ring-sky-500/50', 'bg-slate-900/70', 'opacity-60');
+    if (imageSettingsBox) imageSettingsBox.classList.remove('ring-2', 'ring-indigo-500/50', 'bg-slate-900/70', 'opacity-60');
+    if (uploadRequirementHint) {
+      uploadRequirementHint.className = 'text-xs text-amber-400/90 flex items-center gap-1.5 font-medium bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20';
+      uploadRequirementHint.innerHTML = `
+        <svg class="w-4 h-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <span>Wajib upload file terlebih dahulu agar tombol konversi aktif</span>
+      `;
+    }
     return;
   }
 
   summaryBar.classList.remove('hidden');
-  const countDone = filesQueue.filter(item => item.status === 'done').length;
+  const completedItems = filesQueue.filter(item => item.status === 'done' && item.resultBlob);
+  const countDone = completedItems.length;
   const countError = filesQueue.filter(item => item.status === 'error').length;
   const countProcessed = countDone + countError;
+
+  const hasVideos = filesQueue.some(f => f.type === 'video');
+  const hasImages = filesQueue.some(f => f.type === 'image');
+
+  if (videoSettingsBox) {
+    if (hasVideos) {
+      videoSettingsBox.classList.add('ring-2', 'ring-sky-500/50', 'bg-slate-900/70');
+      videoSettingsBox.classList.remove('opacity-60');
+    } else {
+      videoSettingsBox.classList.remove('ring-2', 'ring-sky-500/50', 'bg-slate-900/70');
+      if (hasImages) videoSettingsBox.classList.add('opacity-60');
+      else videoSettingsBox.classList.remove('opacity-60');
+    }
+  }
+
+  if (imageSettingsBox) {
+    if (hasImages) {
+      imageSettingsBox.classList.add('ring-2', 'ring-indigo-500/50', 'bg-slate-900/70');
+      imageSettingsBox.classList.remove('opacity-60');
+    } else {
+      imageSettingsBox.classList.remove('ring-2', 'ring-indigo-500/50', 'bg-slate-900/70');
+      if (hasVideos) imageSettingsBox.classList.add('opacity-60');
+      else imageSettingsBox.classList.remove('opacity-60');
+    }
+  }
 
   let text = `${total} file dipilih`;
   if (countProcessed > 0) {
     text += ` (${countDone} selesai${countError > 0 ? `, ${countError} gagal` : ''})`;
   }
   fileCountText.textContent = text;
+
+  // Indikator status syarat upload
+  if (uploadRequirementHint) {
+    uploadRequirementHint.className = 'text-xs text-emerald-400 flex items-center gap-1.5 font-medium bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20';
+    uploadRequirementHint.innerHTML = `
+      <svg class="w-4 h-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+      </svg>
+      <span>File berhasil dimuat (${total} file). Fitur konversi aktif & siap digunakan!</span>
+    `;
+  }
 
   // Global progress bar
   if (isConverting || countProcessed > 0) {
@@ -342,8 +549,31 @@ function updateGlobalStats() {
     globalPercentText.textContent = `${percent}%`;
   }
 
-  // Tombol Unduh ZIP
-  downloadAllBtn.classList.toggle('hidden', countDone === 0);
+  // Tampilkan tombol unduh semua jika minimal ada 1 file yang selesai
+  const hasCompleted = countDone > 0;
+  downloadAllBtn.classList.toggle('hidden', !hasCompleted);
+  if (downloadDirectTopBtn) downloadDirectTopBtn.classList.toggle('hidden', !hasCompleted);
+  if (downloadSection) downloadSection.classList.toggle('hidden', !hasCompleted);
+  if (bottomDownloadBar) bottomDownloadBar.classList.toggle('hidden', !hasCompleted);
+
+  if (hasCompleted) {
+    const origBytes = completedItems.reduce((acc, it) => acc + it.file.size, 0);
+    const resultBytes = completedItems.reduce((acc, it) => acc + it.resultBlob.size, 0);
+    const savedPct = Math.round((1 - resultBytes / origBytes) * 100);
+    const isSmaller = savedPct > 0;
+
+    if (completedCountText) {
+      completedCountText.innerHTML = `
+        <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <span><strong>${countDone} dari ${total} file</strong> selesai dikonversi!</span>
+      `;
+    }
+    if (totalSavedText) {
+      totalSavedText.textContent = `Total ukuran baru: ${formatBytes(resultBytes)} (${isSmaller ? 'Hemat ' + savedPct + '%' : 'Selesai'})`;
+    }
+  }
 
   // Status tombol konversi
   if (!isConverting) {
@@ -681,8 +911,8 @@ async function convertVideoToPosterWebP(file, quality) {
   });
 }
 
-// Konversi Video ke WebM
-async function convertVideoToWebM(file, onProgress) {
+// Konversi Video ke WebM (Bitrate mengikuti slider kualitas)
+async function convertVideoToWebM(file, quality = 80, onProgress) {
   if (file.type === 'video/webm' || file.name.endsWith('.webm')) {
     return file;
   }
@@ -709,7 +939,12 @@ async function convertVideoToWebM(file, onProgress) {
           }
         }
 
-        const recorder = new MediaRecorder(stream, { mimeType });
+        // Bitrate adaptif berdasarkan slider kualitas kompresi
+        const videoBits = Math.round(500000 + (quality / 100) * 3500000);
+        const recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: videoBits
+        });
         const chunks = [];
 
         recorder.ondataavailable = (e) => {
@@ -804,7 +1039,7 @@ convertBtn.addEventListener('click', async () => {
         } else if (videoMode === 'poster_webp') {
           item.resultBlob = await convertVideoToPosterWebP(item.file, quality);
         } else if (videoMode === 'webm') {
-          item.resultBlob = await convertVideoToWebM(item.file, (pct) => {
+          item.resultBlob = await convertVideoToWebM(item.file, quality, (pct) => {
             item.progress = pct;
             updateItemRow(item);
           });
@@ -831,9 +1066,11 @@ convertBtn.addEventListener('click', async () => {
 });
 
 // -------------------------------------------------------------
-// UNDUH SEMUA DALAM FORMAT ZIP (DENGAN PROGRESS BAR)
+// PENGUNDUHAN MASSAL: ZIP & LANGSUNG KE DISK (TANPA KLIK SATU-SATU)
 // -------------------------------------------------------------
-downloadAllBtn.addEventListener('click', async () => {
+
+// 1. Unduh Semua sebagai satu paket file ZIP
+async function handleDownloadZip(triggerBtn) {
   const completedItems = filesQueue.filter(item => item.status === 'done' && item.resultBlob);
   if (completedItems.length === 0) return;
 
@@ -842,14 +1079,16 @@ downloadAllBtn.addEventListener('click', async () => {
     const proceed = confirm(
       `Peringatan: Total ukuran file hasil konversi mencapai ${formatBytes(totalSize)}. ` +
       `Membuat file ZIP di atas 1.5 GB di dalam browser dapat membebani memori RAM dan berisiko gagal di beberapa perangkat. ` +
-      `Apakah Anda tetap ingin mencoba membuat ZIP? (Atau klik Batal untuk mengunduh file secara bertahap / satu per satu).`
+      `Apakah Anda tetap ingin mencoba membuat ZIP? (Atau pilih Batal untuk menggunakan tombol 'Unduh Semua (File Langsung)').`
     );
     if (!proceed) return;
   }
 
-  const originalText = downloadAllBtn.textContent;
-  downloadAllBtn.textContent = 'Menyiapkan ZIP (0%)...';
-  downloadAllBtn.disabled = true;
+  const originalText = triggerBtn ? triggerBtn.textContent : '';
+  if (triggerBtn) {
+    triggerBtn.textContent = 'Menyiapkan ZIP (0%)...';
+    triggerBtn.disabled = true;
+  }
 
   try {
     const zip = new JSZip();
@@ -859,7 +1098,9 @@ downloadAllBtn.addEventListener('click', async () => {
     });
 
     const zipBlob = await zip.generateAsync({ type: 'blob' }, (metadata) => {
-      downloadAllBtn.textContent = `Menyiapkan ZIP (${Math.round(metadata.percent)}%)...`;
+      if (triggerBtn) {
+        triggerBtn.textContent = `Menyiapkan ZIP (${Math.round(metadata.percent)}%)...`;
+      }
     });
 
     const link = document.createElement('a');
@@ -870,9 +1111,54 @@ downloadAllBtn.addEventListener('click', async () => {
     console.error('Gagal membuat ZIP:', err);
     alert('Terjadi kesalahan saat membuat file ZIP.');
   } finally {
-    downloadAllBtn.textContent = originalText;
-    downloadAllBtn.disabled = false;
+    if (triggerBtn) {
+      triggerBtn.textContent = originalText;
+      triggerBtn.disabled = false;
+    }
   }
+}
+
+// 2. Unduh Semua File Langsung ke Komputer (Satu-Per-Satu Otomatis, Tanpa ZIP)
+async function handleDownloadDirect(triggerBtn) {
+  const completedItems = filesQueue.filter(item => item.status === 'done' && item.resultBlob);
+  if (completedItems.length === 0) return;
+
+  const originalText = triggerBtn ? triggerBtn.textContent : '';
+  if (triggerBtn) {
+    triggerBtn.disabled = true;
+  }
+
+  for (let i = 0; i < completedItems.length; i++) {
+    const item = completedItems[i];
+    if (triggerBtn) {
+      triggerBtn.textContent = `Mengunduh (${i + 1}/${completedItems.length})...`;
+    }
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(item.resultBlob);
+    link.download = item.newName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Beri jeda 250ms agar browser mengizinkan unduhan beruntun
+    await new Promise(r => setTimeout(r, 250));
+  }
+
+  if (triggerBtn) {
+    triggerBtn.textContent = originalText;
+    triggerBtn.disabled = false;
+  }
+}
+
+// Pasang event listeners untuk semua tombol Unduh ZIP
+[downloadAllBtn, downloadZipBtn, bottomDownloadZipBtn].forEach(btn => {
+  if (btn) btn.addEventListener('click', () => handleDownloadZip(btn));
+});
+
+// Pasang event listeners untuk semua tombol Unduh Langsung
+[downloadDirectTopBtn, downloadDirectBtn, bottomDownloadDirectBtn].forEach(btn => {
+  if (btn) btn.addEventListener('click', () => handleDownloadDirect(btn));
 });
 
 // Inisialisasi awal tampilan pengaturan
