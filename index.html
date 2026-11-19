@@ -32,18 +32,18 @@
         <a href="index.html" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 transition">
           Konverter
         </a>
-        <button id="openAboutBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-1.5">
+        <a href="about.html" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-1.5">
           <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           Tentang (About)
-        </button>
-        <button id="openFaqBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-1.5">
+        </a>
+        <a href="faq.html" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-1.5">
           <svg class="w-3.5 h-3.5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           FAQ
-        </button>
+        </a>
       </nav>
     </div>
   </header>
@@ -236,16 +236,25 @@
         <div id="globalProgressBar" class="bg-gradient-to-r from-indigo-500 to-emerald-400 h-2 rounded-full transition-all duration-200 w-0"></div>
       </div>
 
-      <!-- Estimasi Waktu Selesai (ETA) -->
-      <div id="etaBox" class="hidden flex items-center justify-between text-[11px] text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
+      <!-- Estimasi Waktu Selesai (ETA) & Durasi Proses -->
+      <div id="etaBox" class="hidden flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs bg-slate-900/80 px-3.5 py-2.5 rounded-xl border border-slate-700/70 transition">
         <div class="flex items-center gap-2 text-sky-400 font-medium">
-          <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-          </svg>
-          <span>Estimasi waktu: <strong id="etaText" class="text-white">Menghitung...</strong></span>
+          <span id="etaIconSlot" class="shrink-0">
+            <svg class="w-4 h-4 animate-spin text-sky-400" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+            </svg>
+          </span>
+          <span id="etaStatusText">Estimasi sisa waktu: <strong id="etaText" class="text-white font-semibold">Menghitung...</strong></span>
         </div>
-        <span id="speedRateText" class="text-slate-400 text-[10px]"></span>
+        <div class="flex items-center gap-2.5 text-slate-400 text-[11px] self-end sm:self-auto">
+          <span id="speedRateText" class="text-slate-400"></span>
+          <span class="text-slate-600">|</span>
+          <span class="inline-flex items-center gap-1 font-mono text-indigo-300 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
+            <span>⏱️ Waktu:</span>
+            <span id="elapsedLiveText">00:00</span>
+          </span>
+        </div>
       </div>
 
       <!-- Panel Unduh Semua di Tengah (Muncul Saat File Selesai) -->
@@ -363,29 +372,19 @@
           <h4 class="text-xs font-bold text-slate-200 uppercase tracking-wider">Informasi & Bantuan</h4>
           <ul class="space-y-2 text-slate-400 text-xs">
             <li>
-              <button id="footerAboutBtn" type="button" class="hover:text-indigo-400 transition flex items-center gap-1.5 text-left">
+              <a href="about.html" class="hover:text-indigo-400 transition flex items-center gap-1.5 text-left">
                 <span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span> Tentang Conferti (About)
-              </button>
+              </a>
             </li>
             <li>
-              <button id="footerFaqBtn" type="button" class="hover:text-sky-400 transition flex items-center gap-1.5 text-left">
+              <a href="faq.html" class="hover:text-sky-400 transition flex items-center gap-1.5 text-left">
                 <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span> Tanya Jawab (FAQ)
-              </button>
+              </a>
             </li>
             <li class="pt-1 border-t border-slate-800/80">
-              <a href="about.html" class="hover:text-indigo-300 transition flex items-center gap-1.5 text-slate-400 text-[11px]">
-                <span class="text-indigo-400">&rarr;</span> Halaman About Lengkap
+              <a href="LICENSE" target="_blank" class="hover:text-emerald-400 transition flex items-center gap-1.5 text-slate-400 text-[11px]">
+                <span class="text-emerald-400">&rarr;</span> Lisensi & Hak Cipta (MIT)
               </a>
-            </li>
-            <li>
-              <a href="faq.html" class="hover:text-sky-300 transition flex items-center gap-1.5 text-slate-400 text-[11px]">
-                <span class="text-sky-400">&rarr;</span> Halaman FAQ Lengkap
-              </a>
-            </li>
-            <li>
-              <button id="openLicenseBtn" type="button" class="hover:text-emerald-400 transition flex items-center gap-1.5 text-slate-400 text-[11px]">
-                <span class="text-emerald-400">&rarr;</span> Lisensi & Hak Cipta
-              </button>
             </li>
           </ul>
         </div>
@@ -644,7 +643,12 @@
     </div>
   </div>
 
-  <!-- Module Script -->
-  <script type="module" src="index.js"></script>
+  <!-- Script Aplikasi -->
+  <script src="index.js"></script>
+  <script>
+    if (document.getElementById('currentYear')) {
+      document.getElementById('currentYear').textContent = new Date().getFullYear();
+    }
+  </script>
 </body>
 </html>

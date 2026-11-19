@@ -42,6 +42,7 @@ const uploadRequirementHint = document.getElementById('uploadRequirementHint');
 // State Antrean File
 let filesQueue = [];
 let isConverting = false;
+let lastBatchDurationText = '';
 
 // Sistem Notifikasi Toast Profesional
 function showToast(title, message, type = 'success', duration = 4500) {
@@ -264,6 +265,9 @@ clearBtn.addEventListener('click', () => {
     }
   }
   filesQueue = [];
+  lastBatchDurationText = '';
+  const etaBox = document.getElementById('etaBox');
+  if (etaBox) etaBox.classList.add('hidden');
   renderFullList();
   updateGlobalStats();
 });
@@ -792,10 +796,12 @@ function updateItemRow(item) {
       changeText = '0%';
     }
 
+    const durText = item.durationSec ? ` • ⏱️ ${item.durationSec}s` : '';
+
     statusSlot.innerHTML = `
       <div class="text-left sm:text-right">
         <span class="text-xs font-semibold ${badgeColor}">
-          ${formatBytes(item.resultBlob.size)} <span class="text-[11px] font-normal text-slate-400">(${changeText})</span>
+          ${formatBytes(item.resultBlob.size)} <span class="text-[11px] font-normal text-slate-400">(${changeText}${durText})</span>
         </span>
       </div>
     `;
@@ -854,6 +860,8 @@ async function convertSingleItem(item) {
   updateItemRow(item);
   updateGlobalStats();
 
+  const singleStartTime = Date.now();
+
   try {
     if (item.type === 'image') {
       if (imageFormat === 'webp') {
@@ -883,7 +891,8 @@ async function convertSingleItem(item) {
       }
     }
     item.status = 'done';
-    showToast('Berhasil Diulang', `File <strong>${item.file.name}</strong> berhasil dikonversi ulang!`, 'success', 3500);
+    item.durationSec = ((Date.now() - singleStartTime) / 1000).toFixed(1);
+    showToast('Berhasil Diulang', `File <strong>${item.file.name}</strong> berhasil dikonversi ulang dalam <strong>${item.durationSec} detik</strong>!`, 'success', 3500);
   } catch (err) {
     console.error('Error retry:', item.file.name, err);
     item.status = 'error';
@@ -995,11 +1004,12 @@ function updateGlobalStats() {
     const isSmaller = savedPct > 0;
 
     if (completedCountText) {
+      const durLabel = lastBatchDurationText ? ` dalam <span class="text-white font-bold">${lastBatchDurationText}</span>` : '';
       completedCountText.innerHTML = `
         <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
         </svg>
-        <span><strong>Semua ${countDone} file</strong> telah selesai dikonversi!</span>
+        <span><strong>Semua ${countDone} file</strong> telah selesai dikonversi${durLabel}!</span>
       `;
     }
     if (totalSavedText) {
@@ -1549,15 +1559,45 @@ convertBtn.addEventListener('click', async () => {
   const etaBox = document.getElementById('etaBox');
   const etaText = document.getElementById('etaText');
   const speedRateText = document.getElementById('speedRateText');
+  const etaIconSlot = document.getElementById('etaIconSlot');
+  const etaStatusText = document.getElementById('etaStatusText');
+  const elapsedLiveText = document.getElementById('elapsedLiveText');
 
-  if (etaBox && etaText) {
+  if (etaBox) {
     etaBox.classList.remove('hidden');
-    etaText.textContent = 'Menghitung estimasi...';
+    etaBox.className = 'flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs bg-slate-900/80 px-3.5 py-2.5 rounded-xl border border-sky-500/30 transition';
+    if (etaIconSlot) {
+      etaIconSlot.innerHTML = `
+        <svg class="w-4 h-4 animate-spin text-sky-400" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+      `;
+    }
+    if (etaStatusText) {
+      etaStatusText.innerHTML = 'Estimasi sisa waktu: <strong id="etaText" class="text-white font-semibold">Menghitung...</strong>';
+    }
     if (speedRateText) speedRateText.textContent = '';
+    if (elapsedLiveText) elapsedLiveText.textContent = '00:00';
   }
+
+  // Interval stopwatch real-time
+  const liveTimer = setInterval(() => {
+    if (!isConverting) {
+      clearInterval(liveTimer);
+      return;
+    }
+    const elapsedTotalSec = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(elapsedTotalSec / 60);
+    const s = elapsedTotalSec % 60;
+    const timeFormatted = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    const el = document.getElementById('elapsedLiveText');
+    if (el) el.textContent = timeFormatted;
+  }, 1000);
 
   for (let item of filesQueue) {
     if (item.status === 'done') continue;
+    const itemStartTime = Date.now();
 
     item.status = 'processing';
     item.progress = 0;
@@ -1595,10 +1635,12 @@ convertBtn.addEventListener('click', async () => {
       }
 
       item.status = 'done';
+      item.durationSec = ((Date.now() - itemStartTime) / 1000).toFixed(1);
     } catch (err) {
       console.error('Error konversi:', item.file.name, err);
       item.status = 'error';
       item.errorMsg = err.message || 'Gagal memproses file';
+      item.durationSec = ((Date.now() - itemStartTime) / 1000).toFixed(1);
     }
 
     doneProcessed++;
@@ -1607,11 +1649,10 @@ convertBtn.addEventListener('click', async () => {
     if (elapsedSec > 0 && doneProcessed > 0 && remaining > 0) {
       const avgSecPerFile = elapsedSec / doneProcessed;
       const etaSec = avgSecPerFile * remaining;
-      if (etaBox && etaText) {
-        etaBox.classList.remove('hidden');
-        etaText.textContent = formatEtaDuration(etaSec);
-        if (speedRateText) speedRateText.textContent = `(~${avgSecPerFile.toFixed(1)} dtk/file • sisa ${remaining} file)`;
-      }
+      const curEtaText = document.getElementById('etaText');
+      const curSpeedText = document.getElementById('speedRateText');
+      if (curEtaText) curEtaText.textContent = formatEtaDuration(etaSec);
+      if (curSpeedText) curSpeedText.textContent = `(~${avgSecPerFile.toFixed(1)} dtk/file • sisa ${remaining} file)`;
     }
 
     updateItemRow(item);
@@ -1620,8 +1661,40 @@ convertBtn.addEventListener('click', async () => {
     await new Promise(r => setTimeout(r, 10));
   }
 
+  clearInterval(liveTimer);
   isConverting = false;
-  if (etaBox) etaBox.classList.add('hidden');
+
+  const totalDurationSec = (Date.now() - startTime) / 1000;
+  if (totalDurationSec < 60) {
+    lastBatchDurationText = `${totalDurationSec.toFixed(1)} detik`;
+  } else {
+    const m = Math.floor(totalDurationSec / 60);
+    const s = Math.round(totalDurationSec % 60);
+    lastBatchDurationText = `${m} mnt ${s > 0 ? s + ' dtk' : ''}`;
+  }
+
+  const avgSecFinal = doneProcessed > 0 ? (totalDurationSec / doneProcessed).toFixed(1) : '0';
+
+  if (etaBox) {
+    etaBox.classList.remove('hidden');
+    etaBox.className = 'flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs bg-emerald-500/10 px-3.5 py-2.5 rounded-xl border border-emerald-500/30 text-emerald-300 transition';
+    etaBox.innerHTML = `
+      <div class="flex items-center gap-2 font-medium">
+        <div class="p-1 rounded-md bg-emerald-500/20 text-emerald-400 shrink-0">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <span>Konversi Selesai! Total durasi waktu: <strong class="text-white">${lastBatchDurationText}</strong></span>
+      </div>
+      <div class="flex items-center gap-2.5 text-[11px] text-emerald-300 self-end sm:self-auto font-mono">
+        <span>Rata-rata: ~${avgSecFinal} dtk/file</span>
+        <span class="text-emerald-500/50">|</span>
+        <span>${doneProcessed} file selesai</span>
+      </div>
+    `;
+  }
+
   globalStatusDot.classList.remove('animate-ping');
   updateGlobalStats();
 
@@ -1630,21 +1703,21 @@ convertBtn.addEventListener('click', async () => {
   if (totalDone > 0 && totalDone === filesQueue.length) {
     showToast(
       'Konversi Selesai!',
-      `Seluruh <strong>${totalDone} file</strong> telah berhasil dikonversi! Tombol <strong>Unduh Semua (ZIP)</strong> dan <strong>Unduh Semua (File Langsung)</strong> sekarang aktif & siap digunakan.`,
+      `Seluruh <strong>${totalDone} file</strong> telah berhasil dikonversi dalam waktu <strong>${lastBatchDurationText}</strong>! Tombol <strong>Unduh Semua (ZIP)</strong> dan <strong>Unduh Semua (File Langsung)</strong> sekarang aktif & siap digunakan.`,
       'success',
-      5500
+      6000
     );
   } else if (totalDone > 0 && totalError > 0) {
     showToast(
       'Konversi Selesai Sebagian',
-      `<strong>${totalDone} file</strong> berhasil, namun <strong>${totalError} file</strong> gagal diproses. Anda dapat menekan tombol <strong>Coba Lagi</strong> pada berkas terkait tanpa perlu upload ulang.`,
+      `<strong>${totalDone} file</strong> berhasil diproses dalam <strong>${lastBatchDurationText}</strong>, namun <strong>${totalError} file</strong> gagal diproses. Anda dapat menekan tombol <strong>Coba Lagi</strong> pada berkas terkait tanpa perlu upload ulang.`,
       'warning',
-      6000
+      6500
     );
   } else if (totalDone === 0 && totalError > 0) {
     showToast(
       'Konversi Gagal',
-      `Seluruh <strong>${totalError} file</strong> gagal diproses. Silakan periksa rincian pesan error pada baris berkas terkait.`,
+      `Seluruh <strong>${totalError} file</strong> gagal diproses setelah ${lastBatchDurationText}. Silakan periksa rincian pesan error pada baris berkas terkait.`,
       'error',
       5500
     );
