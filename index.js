@@ -268,6 +268,229 @@ clearBtn.addEventListener('click', () => {
   updateGlobalStats();
 });
 
+// -------------------------------------------------------------
+// SISTEM DETEKSI BERKAS MENDALAM (MAGIC HEADER, DIMENSI, METADATA)
+// -------------------------------------------------------------
+
+// Deteksi binary header signature (Magic Bytes) asli dari file
+async function detectRealFileFormat(file) {
+  try {
+    const slice = file.slice(0, 32);
+    const buffer = await slice.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    // PNG: 89 50 4E 47
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'PNG';
+
+    // JPEG: FF D8 FF
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'JPEG';
+
+    // GIF: 47 49 46 38 ('GIF8')
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return 'GIF';
+
+    // WebP: 'RIFF' .... 'WEBP'
+    if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'WebP';
+
+    // AVIF: .... ftypavif or ftypavis or ftypmif1
+    const ftyp = String.fromCharCode(...bytes.slice(4, 16));
+    if (ftyp.includes('ftypavif') || ftyp.includes('ftypavis')) return 'AVIF';
+
+    // MP4 / MOV / QuickTime: .... ftyp
+    if (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+      const brand = String.fromCharCode(...bytes.slice(8, 12)).trim();
+      return brand ? `MP4 (${brand})` : 'MP4';
+    }
+
+    // WebM / MKV: 1A 45 DF A3
+    if (bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) return 'WebM';
+
+    // BMP: 42 4D ('BM')
+    if (bytes[0] === 0x42 && bytes[1] === 0x4D) return 'BMP';
+
+    // SVG: <?xml or <svg
+    const textSample = new TextDecoder().decode(bytes.slice(0, 24)).toLowerCase();
+    if (textSample.includes('<?xml') || textSample.includes('<svg')) return 'SVG';
+
+    const ext = file.name.split('.').pop().toUpperCase();
+    return ext || (file.type ? file.type.split('/')[1].toUpperCase() : 'BERKAS');
+  } catch (err) {
+    return file.name.split('.').pop().toUpperCase() || 'BERKAS';
+  }
+}
+
+// Hitung rasio aspek (16:9, 4:3, 1:1, dst)
+function getAspectRatio(w, h) {
+  if (!w || !h) return '';
+  const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+  const d = gcd(w, h);
+  const rW = Math.round(w / d);
+  const rH = Math.round(h / d);
+  if ((rW === 16 && rH === 9) || (rW === 9 && rH === 16)) return `${rW}:${rH}`;
+  if ((rW === 4 && rH === 3) || (rW === 3 && rH === 4)) return `${rW}:${rH}`;
+  if (rW === 1 && rH === 1) return '1:1 Persegi';
+  if (rW === 21 && rH === 9) return '21:9 Ultrawide';
+  return `${w}×${h}`;
+}
+
+// Label resolusi video (4K, 1080p, 720p, dst)
+function getVideoResolutionLabel(w, h) {
+  if (!w || !h) return 'Video';
+  const maxDim = Math.max(w, h);
+  const minDim = Math.min(w, h);
+  if (maxDim >= 3800 || minDim >= 2100) return '4K UHD';
+  if (maxDim >= 2500 || minDim >= 1400) return '2K QHD';
+  if (maxDim >= 1900 || minDim >= 1000) return '1080p FHD';
+  if (maxDim >= 1200 || minDim >= 700) return '720p HD';
+  if (maxDim >= 800 || minDim >= 450) return '480p SD';
+  return `${w}×${h}`;
+}
+
+// Format durasi video (mm:ss)
+function formatDuration(sec) {
+  if (!sec || isNaN(sec) || !isFinite(sec) || sec <= 0) return '00:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// Format bitrate
+function formatBitrate(bps) {
+  if (!bps || bps <= 0) return '';
+  if (bps >= 1000000) return `~${(bps / 1000000).toFixed(1)} Mbps`;
+  return `~${Math.round(bps / 1000)} kbps`;
+}
+
+// Inspeksi mendalam file gambar: resolusi, MP, rasio, thumbnail
+async function inspectImageFile(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const w = bitmap.width;
+    const h = bitmap.height;
+    bitmap.close();
+
+    const thumbUrl = URL.createObjectURL(file);
+    const mp = ((w * h) / 1000000).toFixed(1);
+
+    return {
+      valid: true,
+      width: w,
+      height: h,
+      mp: mp,
+      thumb: thumbUrl,
+      ratio: getAspectRatio(w, h)
+    };
+  } catch (err) {
+    return { valid: false, error: 'Berkas gambar tidak dapat dibaca (kemungkinan rusak)' };
+  }
+}
+
+// Inspeksi mendalam file video: resolusi, durasi, bitrate, thumbnail poster frame
+async function inspectVideoFile(file) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    const url = URL.createObjectURL(file);
+    video.src = url;
+
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      URL.revokeObjectURL(url);
+      resolve({ valid: true, width: 0, height: 0, duration: 0, bitrate: 0, thumb: '' });
+    }, 4000);
+
+    video.onloadedmetadata = () => {
+      video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
+    };
+
+    video.onseeked = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+
+      let thumbUrl = '';
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.min(160, video.videoWidth || 160);
+        canvas.height = Math.round((canvas.width * (video.videoHeight || 90)) / (video.videoWidth || 160));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        thumbUrl = canvas.toDataURL('image/jpeg', 0.65);
+        canvas.width = 0;
+        canvas.height = 0;
+      } catch (e) {}
+
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      const dur = video.duration || 0;
+      const bitrate = dur > 0 ? Math.round((file.size * 8) / dur) : 0;
+
+      URL.revokeObjectURL(url);
+      video.src = '';
+
+      resolve({
+        valid: true,
+        width: w,
+        height: h,
+        duration: dur,
+        bitrate: bitrate,
+        thumb: thumbUrl,
+        qualityLabel: getVideoResolutionLabel(w, h),
+        ratio: getAspectRatio(w, h)
+      });
+    };
+
+    video.onerror = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve({ valid: false, error: 'Berkas video tidak didukung atau rusak' });
+    };
+  });
+}
+
+// Menjalankan deteksi dan inspeksi file secara menyeluruh
+async function inspectAndDetectFile(item) {
+  try {
+    const realFormat = await detectRealFileFormat(item.file);
+    item.meta.format = realFormat;
+
+    if (item.type === 'image') {
+      const res = await inspectImageFile(item.file);
+      if (res.valid) {
+        item.meta.specs = `${res.width}×${res.height} (${res.mp} MP • ${res.ratio})`;
+        item.meta.thumb = res.thumb;
+      } else {
+        item.meta.isCorrupt = true;
+        item.errorMsg = res.error;
+      }
+    } else {
+      const res = await inspectVideoFile(item.file);
+      if (res.valid) {
+        const durText = formatDuration(res.duration);
+        const resText = res.qualityLabel || (res.width ? `${res.width}×${res.height}` : 'Video');
+        const brText = res.bitrate > 0 ? ` • ${formatBitrate(res.bitrate)}` : '';
+        item.meta.specs = `${resText} • ${durText}${brText}`;
+        item.meta.thumb = res.thumb;
+      } else {
+        item.meta.isCorrupt = true;
+        item.errorMsg = res.error;
+      }
+    }
+
+    item.meta.detected = true;
+  } catch (err) {
+    item.meta.detected = true;
+  }
+
+  updateItemRow(item);
+}
+
 // Menangani file yang masuk (Gambar dan Video)
 function handleFiles(fileListInput) {
   const incomingFiles = Array.from(fileListInput);
@@ -277,10 +500,13 @@ function handleFiles(fileListInput) {
   let addedImageCount = 0;
   let addedVideoCount = 0;
   let rejectedCount = 0;
+  let duplicateCount = 0;
+
+  const existingSignatures = new Set(filesQueue.map(f => `${f.file.name}_${f.file.size}_${f.file.lastModified}`));
 
   incomingFiles.forEach(file => {
     const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|ogv)$/i.test(file.name);
-    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp|svg|tiff?)$/i.test(file.name);
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp|svg|tiff?|heic|heif)$/i.test(file.name);
 
     if (!isVideo && !isImage) {
       rejectedCount++;
@@ -290,6 +516,11 @@ function handleFiles(fileListInput) {
     if (isVideo) addedVideoCount++;
     if (isImage) addedImageCount++;
 
+    const sig = `${file.name}_${file.size}_${file.lastModified}`;
+    const isDuplicate = existingSignatures.has(sig);
+    if (isDuplicate) duplicateCount++;
+    existingSignatures.add(sig);
+
     const type = isVideo ? 'video' : 'image';
     const item = {
       id: crypto.randomUUID(),
@@ -298,10 +529,21 @@ function handleFiles(fileListInput) {
       status: 'pending', // pending | processing | done | error
       resultBlob: null,
       progress: 0,
-      errorMsg: ''
+      errorMsg: '',
+      meta: {
+        detected: false,
+        format: '',
+        specs: '',
+        thumb: '',
+        isDuplicate: isDuplicate,
+        isCorrupt: false
+      }
     };
     item.newName = computeTargetFilename(item);
     filesQueue.push(item);
+
+    // Jalankan deteksi metadata mendalam secara asinkron
+    inspectAndDetectFile(item);
   });
 
   const totalAdded = addedImageCount + addedVideoCount;
@@ -319,12 +561,15 @@ function handleFiles(fileListInput) {
     if (addedImageCount > 0) details.push(`<strong>${addedImageCount}</strong> gambar`);
     if (addedVideoCount > 0) details.push(`<strong>${addedVideoCount}</strong> video`);
 
-    let messageHtml = `Berhasil memuat <strong>${totalAdded} file</strong> (${details.join(', ')}) ke browser. Tombol dan fitur konversi sekarang <strong>aktif & siap digunakan!</strong>`;
+    let messageHtml = `Berhasil mendeteksi <strong>${totalAdded} file</strong> (${details.join(', ')}). Format, resolusi, dan spesifikasi terdeteksi otomatis!`;
+    if (duplicateCount > 0) {
+      messageHtml += `<br><span class="text-amber-300">⚠️ Terdeteksi ${duplicateCount} file duplikat dalam antrean.</span>`;
+    }
     if (rejectedCount > 0) {
-      messageHtml += `<br><span class="text-amber-300">Catatan: ${rejectedCount} file diabaikan karena bukan format gambar/video yang didukung.</span>`;
+      messageHtml += `<br><span class="text-rose-300">Catatan: ${rejectedCount} berkas diabaikan karena bukan gambar/video.</span>`;
     }
 
-    showToast('Upload Berhasil!', messageHtml, 'success', 5000);
+    showToast('File Berhasil Dideteksi!', messageHtml, 'success', 5000);
   } else {
     showToast(
       'Gagal Mengupload File',
@@ -366,22 +611,24 @@ function renderFullList() {
   summaryBar.classList.remove('hidden');
 
   const fragment = document.createDocumentFragment();
-  filesQueue.forEach(item => {
-    const row = createRowElement(item);
+  filesQueue.forEach((item, index) => {
+    const row = createRowElement(item, index);
     fragment.appendChild(row);
   });
   fileList.appendChild(fragment);
 }
 
-// Buat elemen baris untuk satu file
-function createRowElement(item) {
+// Buat elemen baris untuk satu file (dilengkapi thumbnail pratinjau, nomor urut, & spesifikasi deteksi)
+function createRowElement(item, index = 0) {
   const row = document.createElement('div');
   row.id = `row-${item.id}`;
-  row.className = 'bg-slate-800/90 border border-slate-700/80 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition hover:border-slate-600';
+  row.className = 'bg-slate-800/90 border border-slate-700/80 rounded-xl p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition hover:border-slate-600';
 
   const isVideo = item.type === 'video';
   const isLarge = item.file.size >= 1024 * 1024 * 1024; // >= 1GB
   const isMediumLarge = item.file.size >= 300 * 1024 * 1024; // >= 300MB
+
+  const numberBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 text-indigo-400 border border-indigo-500/30 font-mono shrink-0" title="Nomor antrean">#${index + 1}</span>`;
 
   const typeBadge = isVideo
     ? `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30">Video</span>`
@@ -391,9 +638,16 @@ function createRowElement(item) {
     ? `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">File Raksasa (&gt;1 GB)</span>`
     : (isMediumLarge ? `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-700 text-slate-300">File Besar</span>` : '');
 
-  row.innerHTML = `
-    <div class="min-w-0 flex-1 flex items-start gap-3">
-      <div class="p-2 rounded-lg bg-slate-900 border border-slate-700/60 text-slate-400 shrink-0 mt-0.5">
+  const thumbHtml = item.meta && item.meta.thumb
+    ? `<div class="relative w-12 h-12 rounded-lg overflow-hidden bg-slate-950 border border-slate-700 shrink-0 shadow-inner">
+         <img src="${item.meta.thumb}" class="w-full h-full object-cover" alt="Preview">
+         ${isVideo ? `<div class="absolute inset-0 bg-black/40 flex items-center justify-center">
+            <svg class="w-4 h-4 text-white drop-shadow" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.34-5.89a1.5 1.5 0 000-2.54L6.3 2.84z"/>
+            </svg>
+          </div>` : ''}
+       </div>`
+    : `<div class="w-12 h-12 rounded-lg bg-slate-900 border border-slate-700/60 text-slate-400 shrink-0 flex items-center justify-center">
         ${isVideo ? `
           <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -403,14 +657,39 @@ function createRowElement(item) {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         `}
+      </div>`;
+
+  let metaBadges = '';
+  if (item.meta && item.meta.detected) {
+    if (item.meta.isCorrupt) {
+      metaBadges = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">❌ Berkas Rusak</span>`;
+    } else {
+      metaBadges = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-900 text-indigo-300 border border-slate-700" title="Format Asli Terdeteksi">${item.meta.format || item.type.toUpperCase()}</span>`;
+      if (item.meta.specs) {
+        metaBadges += `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-900/80 text-slate-300 border border-slate-700/80">${item.meta.specs}</span>`;
+      }
+    }
+    if (item.meta.isDuplicate) {
+      metaBadges += `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">⚠️ Duplikat</span>`;
+    }
+  } else {
+    metaBadges = `<span class="px-1.5 py-0.5 rounded text-[10px] text-slate-500 bg-slate-900 animate-pulse font-mono">Mendeteksi...</span>`;
+  }
+
+  row.innerHTML = `
+    <div class="min-w-0 flex-1 flex items-start gap-3">
+      <div class="thumb-slot shrink-0 mt-0.5">
+        ${thumbHtml}
       </div>
       <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          ${numberBadge}
           <p class="text-sm font-semibold text-slate-200 truncate max-w-xs sm:max-w-md">${item.file.name}</p>
           ${typeBadge}
           ${sizeBadge}
+          <span class="meta-slot inline-flex items-center gap-1.5 flex-wrap">${metaBadges}</span>
         </div>
-        <p class="text-xs text-slate-400 mt-0.5">
+        <p class="text-xs text-slate-400 mt-1">
           Asli: <span class="text-slate-300">${formatBytes(item.file.size)}</span> &rarr; Target: <span class="target-name text-indigo-400 font-semibold">${item.newName}</span> <span class="target-note">${getFormatNote(item)}</span>
         </p>
         <p class="error-msg-box text-[11px] text-rose-400 mt-1 hidden"></p>
@@ -429,10 +708,10 @@ function createRowElement(item) {
     </div>
   `;
 
-  // Listener tombol hapus satuan
+  // Listener tombol hapus satuan (render ulang agar penomoran urut selalu konsisten)
   row.querySelector('.remove-btn').addEventListener('click', () => {
     filesQueue = filesQueue.filter(f => f.id !== item.id);
-    row.remove();
+    renderFullList();
     updateGlobalStats();
   });
 
@@ -447,6 +726,40 @@ function updateItemRow(item) {
   const statusSlot = row.querySelector('.status-badge-slot');
   const actionSlot = row.querySelector('.action-btn-slot');
   const errorBox = row.querySelector('.error-msg-box');
+
+  // Update thumbnail & spesifikasi deteksi jika asinkron selesai
+  const thumbSlot = row.querySelector('.thumb-slot');
+  const metaSlot = row.querySelector('.meta-slot');
+
+  if (thumbSlot && item.meta && item.meta.thumb && !thumbSlot.querySelector('img')) {
+    thumbSlot.innerHTML = `
+      <div class="relative w-12 h-12 rounded-lg overflow-hidden bg-slate-950 border border-slate-700 shrink-0 shadow-inner">
+        <img src="${item.meta.thumb}" class="w-full h-full object-cover" alt="Preview">
+        ${item.type === 'video' ? `
+          <div class="absolute inset-0 bg-black/40 flex items-center justify-center">
+            <svg class="w-4 h-4 text-white drop-shadow" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.34-5.89a1.5 1.5 0 000-2.54L6.3 2.84z"/>
+            </svg>
+          </div>` : ''}
+      </div>
+    `;
+  }
+
+  if (metaSlot && item.meta && item.meta.detected) {
+    let badges = '';
+    if (item.meta.isCorrupt) {
+      badges = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">❌ Berkas Rusak</span>`;
+    } else {
+      badges = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-900 text-indigo-300 border border-slate-700" title="Format Asli Terdeteksi">${item.meta.format || item.type.toUpperCase()}</span>`;
+      if (item.meta.specs) {
+        badges += `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-900/80 text-slate-300 border border-slate-700/80">${item.meta.specs}</span>`;
+      }
+    }
+    if (item.meta.isDuplicate) {
+      badges += `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">⚠️ Duplikat</span>`;
+    }
+    metaSlot.innerHTML = badges;
+  }
 
   if (item.status === 'pending') {
     statusSlot.innerHTML = `<span class="text-xs px-2.5 py-1 rounded bg-slate-700/80 text-slate-300 font-medium">Menunggu</span>`;
@@ -498,14 +811,87 @@ function updateItemRow(item) {
     `;
     errorBox.classList.add('hidden');
   } else if (item.status === 'error') {
-    statusSlot.innerHTML = `<span class="text-xs px-2.5 py-1 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">Gagal</span>`;
-    actionSlot.innerHTML = '';
+    statusSlot.innerHTML = `<span class="text-xs px-2.5 py-1 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30 font-medium">Gagal</span>`;
+    actionSlot.innerHTML = `
+      <button class="retry-single-btn inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white rounded-lg transition shadow-sm" title="Ulangi konversi file ini tanpa upload ulang">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        <span>Coba Lagi</span>
+      </button>
+    `;
+    const retryBtn = actionSlot.querySelector('.retry-single-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => convertSingleItem(item));
+    }
     if (item.errorMsg) {
-      errorBox.textContent = item.errorMsg;
+      errorBox.innerHTML = `<span class="inline-flex items-center gap-1 font-medium"><span>Penyebab:</span> <span class="text-rose-300 font-normal">${item.errorMsg}</span></span>`;
       errorBox.classList.remove('hidden');
     }
   }
 
+  updateGlobalStats();
+}
+
+// Konversi single item (untuk retry tanpa upload ulang)
+async function convertSingleItem(item) {
+  if (isConverting) {
+    showToast('Harap Tunggu', 'Proses konversi massal sedang berlangsung.', 'warning', 3000);
+    return;
+  }
+
+  const quality = parseInt(qualityRange.value, 10);
+  const imageFormat = imageFormatSelect.value;
+  const imageMaxDim = imageMaxDimSelect ? imageMaxDimSelect.value : '1920';
+  const videoMode = videoModeSelect.value;
+  const videoFps = parseInt(videoFpsSelect.value, 10);
+  const videoDuration = parseInt(videoDurationSelect.value, 10);
+  const videoScale = parseFloat(videoScaleSelect.value);
+
+  item.status = 'processing';
+  item.progress = 0;
+  item.errorMsg = '';
+  updateItemRow(item);
+  updateGlobalStats();
+
+  try {
+    if (item.type === 'image') {
+      if (imageFormat === 'webp') {
+        item.resultBlob = await convertImageToWebP(item.file, quality, imageMaxDim);
+      } else {
+        item.resultBlob = await convertImageToAvif(item.file, quality, imageMaxDim);
+      }
+    } else {
+      if (videoMode === 'animated_webp') {
+        item.resultBlob = await convertVideoToAnimatedWebP(item.file, {
+          quality,
+          fps: videoFps,
+          maxDuration: videoDuration,
+          scale: videoScale,
+          onProgress: (pct) => {
+            item.progress = pct;
+            updateItemRow(item);
+          }
+        });
+      } else if (videoMode === 'poster_webp') {
+        item.resultBlob = await convertVideoToPosterWebP(item.file, quality);
+      } else if (videoMode === 'webm') {
+        item.resultBlob = await convertVideoToWebM(item.file, quality, (pct) => {
+          item.progress = pct;
+          updateItemRow(item);
+        });
+      }
+    }
+    item.status = 'done';
+    showToast('Berhasil Diulang', `File <strong>${item.file.name}</strong> berhasil dikonversi ulang!`, 'success', 3500);
+  } catch (err) {
+    console.error('Error retry:', item.file.name, err);
+    item.status = 'error';
+    item.errorMsg = err.message || 'Gagal memproses file';
+    showToast('Gagal Mengulang', `File <strong>${item.file.name}</strong> masih gagal: ${item.errorMsg}`, 'error', 4500);
+  }
+
+  updateItemRow(item);
   updateGlobalStats();
 }
 
@@ -566,11 +952,14 @@ function updateGlobalStats() {
     }
   }
 
-  let text = `${total} file dipilih`;
+  let html = `<span class="font-semibold text-slate-200">${total} file dipilih</span>`;
   if (countProcessed > 0) {
-    text += ` (${countDone} selesai${countError > 0 ? `, ${countError} gagal` : ''})`;
+    html += ` <span class="text-slate-500 font-normal">&bull;</span> <span class="text-emerald-400 font-medium">✓ ${countDone} selesai</span>`;
+    if (countError > 0) {
+      html += ` <span class="text-rose-400 font-medium ml-1.5">✕ ${countError} gagal</span>`;
+    }
   }
-  fileCountText.textContent = text;
+  fileCountText.innerHTML = html;
 
   // Indikator status syarat upload
   if (uploadRequirementHint) {
@@ -592,14 +981,14 @@ function updateGlobalStats() {
     globalPercentText.textContent = `${percent}%`;
   }
 
-  // Tampilkan tombol unduh semua jika minimal ada 1 file yang selesai
-  const hasCompleted = countDone > 0;
-  downloadAllBtn.classList.toggle('hidden', !hasCompleted);
-  if (downloadDirectTopBtn) downloadDirectTopBtn.classList.toggle('hidden', !hasCompleted);
-  if (downloadSection) downloadSection.classList.toggle('hidden', !hasCompleted);
-  if (bottomDownloadBar) bottomDownloadBar.classList.toggle('hidden', !hasCompleted);
+  // Tombol Unduh Semua (ZIP & File Langsung) HANYA muncul dan aktif jika SELURUH file antrean telah selesai diproses!
+  const allCompleted = total > 0 && countProcessed === total && !isConverting && countDone > 0;
+  downloadAllBtn.classList.toggle('hidden', !allCompleted);
+  if (downloadDirectTopBtn) downloadDirectTopBtn.classList.toggle('hidden', !allCompleted);
+  if (downloadSection) downloadSection.classList.toggle('hidden', !allCompleted);
+  if (bottomDownloadBar) bottomDownloadBar.classList.toggle('hidden', !allCompleted);
 
-  if (hasCompleted) {
+  if (allCompleted) {
     const origBytes = completedItems.reduce((acc, it) => acc + it.file.size, 0);
     const resultBytes = completedItems.reduce((acc, it) => acc + it.resultBlob.size, 0);
     const savedPct = Math.round((1 - resultBytes / origBytes) * 100);
@@ -610,7 +999,7 @@ function updateGlobalStats() {
         <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
         </svg>
-        <span><strong>${countDone} dari ${total} file</strong> selesai dikonversi!</span>
+        <span><strong>Semua ${countDone} file</strong> telah selesai dikonversi!</span>
       `;
     }
     if (totalSavedText) {
@@ -618,9 +1007,28 @@ function updateGlobalStats() {
     }
   }
 
-  // Status tombol konversi
+  // Status tombol konversi & aksi retry
   if (!isConverting) {
-    convertBtn.disabled = countDone === total;
+    if (countError > 0) {
+      convertBtn.disabled = false;
+      convertBtn.innerHTML = `
+        <span class="inline-flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Ulangi yang Gagal (${countError})
+        </span>
+      `;
+      convertBtn.className = 'px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-medium rounded-lg text-sm transition shadow-sm hover:shadow-amber-500/25 cursor-pointer';
+    } else if (countDone === total && total > 0) {
+      convertBtn.disabled = true;
+      convertBtn.innerHTML = `Semua Berhasil Dikonversi`;
+      convertBtn.className = 'px-5 py-2.5 bg-slate-700 text-slate-400 cursor-not-allowed font-medium rounded-lg text-sm transition';
+    } else {
+      convertBtn.disabled = total === 0;
+      convertBtn.innerHTML = `Konversi Semua`;
+      convertBtn.className = 'px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-medium rounded-lg text-sm transition shadow-sm hover:shadow-indigo-500/25';
+    }
   }
 }
 
@@ -1100,6 +1508,18 @@ async function convertVideoToWebM(file, quality = 80, onProgress) {
 // -------------------------------------------------------------
 // PROSES KONVERSI MASSAL (SEKUENSIAL & AMAN MEMORI)
 // -------------------------------------------------------------
+// Helper format estimasi waktu
+function formatEtaDuration(seconds) {
+  if (seconds <= 2) return 'hampir selesai...';
+  if (seconds < 60) return `~${Math.round(seconds)} detik`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `~${m} mnt ${s > 0 ? s + ' dtk' : ''}`;
+}
+
+// -------------------------------------------------------------
+// PROSES KONVERSI MASSAL (SEKUENSIAL, AMAN MEMORI & ESTIMASI WAKTU)
+// -------------------------------------------------------------
 convertBtn.addEventListener('click', async () => {
   if (isConverting) return;
   isConverting = true;
@@ -1123,6 +1543,18 @@ convertBtn.addEventListener('click', async () => {
       Sedang Mengonversi...
     </span>
   `;
+
+  const startTime = Date.now();
+  let doneProcessed = 0;
+  const etaBox = document.getElementById('etaBox');
+  const etaText = document.getElementById('etaText');
+  const speedRateText = document.getElementById('speedRateText');
+
+  if (etaBox && etaText) {
+    etaBox.classList.remove('hidden');
+    etaText.textContent = 'Menghitung estimasi...';
+    if (speedRateText) speedRateText.textContent = '';
+  }
 
   for (let item of filesQueue) {
     if (item.status === 'done') continue;
@@ -1169,6 +1601,19 @@ convertBtn.addEventListener('click', async () => {
       item.errorMsg = err.message || 'Gagal memproses file';
     }
 
+    doneProcessed++;
+    const remaining = filesQueue.filter(f => f.status === 'pending' || f.status === 'processing').length;
+    const elapsedSec = (Date.now() - startTime) / 1000;
+    if (elapsedSec > 0 && doneProcessed > 0 && remaining > 0) {
+      const avgSecPerFile = elapsedSec / doneProcessed;
+      const etaSec = avgSecPerFile * remaining;
+      if (etaBox && etaText) {
+        etaBox.classList.remove('hidden');
+        etaText.textContent = formatEtaDuration(etaSec);
+        if (speedRateText) speedRateText.textContent = `(~${avgSecPerFile.toFixed(1)} dtk/file • sisa ${remaining} file)`;
+      }
+    }
+
     updateItemRow(item);
 
     // Beri jeda 1 tick agar browser dapat membersihkan memori dan me-render animasi dengan mulus
@@ -1176,9 +1621,34 @@ convertBtn.addEventListener('click', async () => {
   }
 
   isConverting = false;
+  if (etaBox) etaBox.classList.add('hidden');
   globalStatusDot.classList.remove('animate-ping');
-  convertBtn.textContent = 'Konversi Semua';
   updateGlobalStats();
+
+  const totalDone = filesQueue.filter(i => i.status === 'done').length;
+  const totalError = filesQueue.filter(i => i.status === 'error').length;
+  if (totalDone > 0 && totalDone === filesQueue.length) {
+    showToast(
+      'Konversi Selesai!',
+      `Seluruh <strong>${totalDone} file</strong> telah berhasil dikonversi! Tombol <strong>Unduh Semua (ZIP)</strong> dan <strong>Unduh Semua (File Langsung)</strong> sekarang aktif & siap digunakan.`,
+      'success',
+      5500
+    );
+  } else if (totalDone > 0 && totalError > 0) {
+    showToast(
+      'Konversi Selesai Sebagian',
+      `<strong>${totalDone} file</strong> berhasil, namun <strong>${totalError} file</strong> gagal diproses. Anda dapat menekan tombol <strong>Coba Lagi</strong> pada berkas terkait tanpa perlu upload ulang.`,
+      'warning',
+      6000
+    );
+  } else if (totalDone === 0 && totalError > 0) {
+    showToast(
+      'Konversi Gagal',
+      `Seluruh <strong>${totalError} file</strong> gagal diproses. Silakan periksa rincian pesan error pada baris berkas terkait.`,
+      'error',
+      5500
+    );
+  }
 });
 
 // -------------------------------------------------------------
@@ -1187,8 +1657,22 @@ convertBtn.addEventListener('click', async () => {
 
 // 1. Unduh Semua sebagai satu paket file ZIP
 async function handleDownloadZip(triggerBtn) {
+  if (isConverting) {
+    showToast('Konversi Sedang Berjalan', 'Harap tunggu hingga semua file selesai dikonversi sebelum mengunduh ZIP.', 'warning', 3500);
+    return;
+  }
+
   const completedItems = filesQueue.filter(item => item.status === 'done' && item.resultBlob);
-  if (completedItems.length === 0) return;
+  if (completedItems.length === 0) {
+    showToast('Belum Ada File Selesai', 'Belum ada file yang selesai dikonversi untuk diunduh.', 'warning', 3500);
+    return;
+  }
+
+  if (completedItems.length < filesQueue.length) {
+    const remaining = filesQueue.length - completedItems.length;
+    showToast('Proses Belum Selesai', `Masih ada ${remaining} file yang belum selesai dikonversi. Harap selesaikan semua file terlebih dahulu.`, 'warning', 4000);
+    return;
+  }
 
   const totalSize = completedItems.reduce((acc, it) => acc + (it.resultBlob ? it.resultBlob.size : 0), 0);
   if (totalSize > 1.5 * 1024 * 1024 * 1024) { // > 1.5 GB
@@ -1236,18 +1720,42 @@ async function handleDownloadZip(triggerBtn) {
 
 // 2. Unduh Semua File Langsung ke Komputer (Satu-Per-Satu Otomatis, Tanpa ZIP)
 async function handleDownloadDirect(triggerBtn) {
+  if (isConverting) {
+    showToast('Konversi Sedang Berjalan', 'Harap tunggu hingga semua file selesai dikonversi sebelum mengunduh.', 'warning', 3500);
+    return;
+  }
+
   const completedItems = filesQueue.filter(item => item.status === 'done' && item.resultBlob);
-  if (completedItems.length === 0) return;
+  if (completedItems.length === 0) {
+    showToast('Belum Ada File Selesai', 'Belum ada file yang selesai dikonversi.', 'warning', 3500);
+    return;
+  }
+
+  if (completedItems.length < filesQueue.length) {
+    const remaining = filesQueue.length - completedItems.length;
+    showToast('Proses Belum Selesai', `Masih ada ${remaining} file yang belum selesai dikonversi. Harap selesaikan semua file terlebih dahulu.`, 'warning', 4000);
+    return;
+  }
 
   const originalText = triggerBtn ? triggerBtn.textContent : '';
   if (triggerBtn) {
     triggerBtn.disabled = true;
   }
 
+  const dlStartTime = Date.now();
+
   for (let i = 0; i < completedItems.length; i++) {
     const item = completedItems[i];
+    const dlElapsed = (Date.now() - dlStartTime) / 1000;
+    const dlRemaining = completedItems.length - (i + 1);
+    let dlEta = '';
+    if (i > 0 && dlRemaining > 0) {
+      const dlAvg = dlElapsed / (i + 1);
+      dlEta = ` (sisa ${formatEtaDuration(dlAvg * dlRemaining)})`;
+    }
+
     if (triggerBtn) {
-      triggerBtn.textContent = `Mengunduh (${i + 1}/${completedItems.length})...`;
+      triggerBtn.textContent = `Mengunduh (${i + 1}/${completedItems.length})${dlEta}...`;
     }
 
     const link = document.createElement('a');
@@ -1279,3 +1787,78 @@ async function handleDownloadDirect(triggerBtn) {
 
 // Inisialisasi awal tampilan pengaturan
 updateVideoSettingsVisibility();
+
+// -------------------------------------------------------------
+// TAHUN DINAMIS DI FOOTER
+// -------------------------------------------------------------
+const currentYearEl = document.getElementById('currentYear');
+if (currentYearEl) {
+  currentYearEl.textContent = new Date().getFullYear();
+}
+
+// -------------------------------------------------------------
+// KONTROLER MODAL TENTANG (ABOUT), FAQ, & LISENSI
+// -------------------------------------------------------------
+const aboutModal = document.getElementById('aboutModal');
+const faqModal = document.getElementById('faqModal');
+const licenseModal = document.getElementById('licenseModal');
+
+const openAboutBtn = document.getElementById('openAboutBtn');
+const openFaqBtn = document.getElementById('openFaqBtn');
+const openLicenseBtn = document.getElementById('openLicenseBtn');
+
+const footerAboutBtn = document.getElementById('footerAboutBtn');
+const footerFaqBtn = document.getElementById('footerFaqBtn');
+
+const closeAboutBtn = document.getElementById('closeAboutBtn');
+const closeAboutModalBtn = document.getElementById('closeAboutModalBtn');
+const closeFaqBtn = document.getElementById('closeFaqBtn');
+const closeFaqModalBtn = document.getElementById('closeFaqModalBtn');
+const closeLicenseBtn = document.getElementById('closeLicenseBtn');
+const closeLicenseModalBtn = document.getElementById('closeLicenseModalBtn');
+
+function showModal(modal) {
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.classList.add('overflow-hidden');
+}
+
+function hideModal(modal) {
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  document.body.classList.remove('overflow-hidden');
+}
+
+if (openAboutBtn) openAboutBtn.addEventListener('click', () => showModal(aboutModal));
+if (footerAboutBtn) footerAboutBtn.addEventListener('click', () => showModal(aboutModal));
+if (closeAboutBtn) closeAboutBtn.addEventListener('click', () => hideModal(aboutModal));
+if (closeAboutModalBtn) closeAboutModalBtn.addEventListener('click', () => hideModal(aboutModal));
+
+if (openFaqBtn) openFaqBtn.addEventListener('click', () => showModal(faqModal));
+if (footerFaqBtn) footerFaqBtn.addEventListener('click', () => showModal(faqModal));
+if (closeFaqBtn) closeFaqBtn.addEventListener('click', () => hideModal(faqModal));
+if (closeFaqModalBtn) closeFaqModalBtn.addEventListener('click', () => hideModal(faqModal));
+
+if (openLicenseBtn) openLicenseBtn.addEventListener('click', () => showModal(licenseModal));
+if (closeLicenseBtn) closeLicenseBtn.addEventListener('click', () => hideModal(licenseModal));
+if (closeLicenseModalBtn) closeLicenseModalBtn.addEventListener('click', () => hideModal(licenseModal));
+
+// Tutup modal jika klik di luar kotak modal (backdrop)
+[aboutModal, faqModal, licenseModal].forEach(modal => {
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) hideModal(modal);
+    });
+  }
+});
+
+// Tutup modal saat tombol Escape ditekan
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    hideModal(aboutModal);
+    hideModal(faqModal);
+    hideModal(licenseModal);
+  }
+});

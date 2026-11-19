@@ -13,8 +13,43 @@
   <!-- Toast Notification Container (Fixed Top Right) -->
   <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-2.5 pointer-events-none max-w-sm w-full px-4"></div>
 
+  <!-- Header Navigasi -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+      <!-- Logo & Brand -->
+      <a href="index.html" class="flex items-center gap-2.5 group">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-sky-500 to-emerald-400 flex items-center justify-center text-white font-black text-lg shadow-md shadow-indigo-500/25 group-hover:scale-105 transition">
+          C
+        </div>
+        <div>
+          <span class="text-lg font-black text-white tracking-tight">Conferti<span class="text-indigo-400">.</span></span>
+          <span class="hidden sm:inline-block ml-2 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">100% Client-Side</span>
+        </div>
+      </a>
+
+      <!-- Menu Navigasi -->
+      <nav class="flex items-center gap-2 sm:gap-3">
+        <a href="index.html" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 transition">
+          Konverter
+        </a>
+        <button id="openAboutBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Tentang (About)
+        </button>
+        <button id="openFaqBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          FAQ
+        </button>
+      </nav>
+    </div>
+  </header>
+
   <main class="flex-grow max-w-4xl w-full mx-auto px-4 py-8 sm:py-10">
-    <!-- Header -->
+    <!-- Hero / Judul Halaman -->
     <div class="text-center mb-8">
       <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold mb-3">
         <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
@@ -201,6 +236,18 @@
         <div id="globalProgressBar" class="bg-gradient-to-r from-indigo-500 to-emerald-400 h-2 rounded-full transition-all duration-200 w-0"></div>
       </div>
 
+      <!-- Estimasi Waktu Selesai (ETA) -->
+      <div id="etaBox" class="hidden flex items-center justify-between text-[11px] text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
+        <div class="flex items-center gap-2 text-sky-400 font-medium">
+          <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+          </svg>
+          <span>Estimasi waktu: <strong id="etaText" class="text-white">Menghitung...</strong></span>
+        </div>
+        <span id="speedRateText" class="text-slate-400 text-[10px]"></span>
+      </div>
+
       <!-- Panel Unduh Semua di Tengah (Muncul Saat File Selesai) -->
       <div id="downloadSection" class="hidden pt-3 border-t border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900/40 p-3 rounded-lg border border-indigo-500/20">
         <div>
@@ -231,8 +278,14 @@
       </div>
     </div>
 
-    <!-- Daftar File -->
-    <div id="fileList" class="mt-4 space-y-2.5"></div>
+    <!-- Header Daftar File dengan Penomoran & Pembatas Panjang -->
+    <div class="flex items-center justify-between text-xs text-slate-400 mt-5 px-1">
+      <span class="font-medium text-slate-300">Daftar Antrean File (Penomoran Otomatis):</span>
+      <span class="text-[11px] text-slate-500">Maksimal tinggi rapi &bull; Geser ke bawah jika file banyak</span>
+    </div>
+
+    <!-- Daftar File (Scrollable Container agar tidak terlalu panjang di layar) -->
+    <div id="fileList" class="mt-2.5 space-y-2.5 max-h-[480px] overflow-y-auto pr-1.5 rounded-xl border border-transparent focus-within:border-slate-700"></div>
 
     <!-- Tombol Unduh Semua di Bagian Bawah (Muncul setelah scroll daftar) -->
     <div id="bottomDownloadBar" class="hidden mt-6 bg-slate-800/90 border border-slate-700/80 p-4 sm:p-5 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
@@ -305,15 +358,35 @@
           </ul>
         </div>
 
-        <!-- Kolom 3: Manfaat Web -->
+        <!-- Kolom 3: Informasi & Bantuan -->
         <div class="space-y-2.5">
-          <h4 class="text-xs font-bold text-slate-200 uppercase tracking-wider">Optimasi Web</h4>
-          <ul class="space-y-1.5 text-slate-400 text-xs">
-            <li>• PageSpeed & Core Web Vitals</li>
-            <li>• Kompresi 25% – 85% Lebih Kecil</li>
-            <li>• Transparansi Alpha Channel</li>
-            <li>• Tanpa Beban Server Hosting</li>
-            <li>• Loading Website Lebih Gesit</li>
+          <h4 class="text-xs font-bold text-slate-200 uppercase tracking-wider">Informasi & Bantuan</h4>
+          <ul class="space-y-2 text-slate-400 text-xs">
+            <li>
+              <button id="footerAboutBtn" type="button" class="hover:text-indigo-400 transition flex items-center gap-1.5 text-left">
+                <span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span> Tentang Conferti (About)
+              </button>
+            </li>
+            <li>
+              <button id="footerFaqBtn" type="button" class="hover:text-sky-400 transition flex items-center gap-1.5 text-left">
+                <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span> Tanya Jawab (FAQ)
+              </button>
+            </li>
+            <li class="pt-1 border-t border-slate-800/80">
+              <a href="about.html" class="hover:text-indigo-300 transition flex items-center gap-1.5 text-slate-400 text-[11px]">
+                <span class="text-indigo-400">&rarr;</span> Halaman About Lengkap
+              </a>
+            </li>
+            <li>
+              <a href="faq.html" class="hover:text-sky-300 transition flex items-center gap-1.5 text-slate-400 text-[11px]">
+                <span class="text-sky-400">&rarr;</span> Halaman FAQ Lengkap
+              </a>
+            </li>
+            <li>
+              <button id="openLicenseBtn" type="button" class="hover:text-emerald-400 transition flex items-center gap-1.5 text-slate-400 text-[11px]">
+                <span class="text-emerald-400">&rarr;</span> Lisensi & Hak Cipta
+              </button>
+            </li>
           </ul>
         </div>
 
@@ -331,9 +404,9 @@
         </div>
       </div>
 
-      <!-- Garis Hak Cipta & Integritas -->
+      <!-- Garis Hak Cipta & Integritas (Tahun Dinamis) -->
       <div class="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-slate-500 text-xs">
-        <p>&copy; 2026 <span class="text-slate-300 font-semibold">Muhammad Syaiful Mukmin</span>. All rights reserved.</p>
+        <p>&copy; <span id="currentYear"></span> <span class="text-slate-300 font-semibold">Muhammad Syaiful Mukmin</span>. All rights reserved.</p>
         <p class="flex items-center gap-2 text-[11px] text-slate-500">
           <span>Conferti Web Media Toolkit</span>
           <span>&bull;</span>
@@ -342,6 +415,234 @@
       </div>
     </div>
   </footer>
+
+  <!-- Modal Tentang Conferti (About) -->
+  <div id="aboutModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <button id="closeAboutBtn" class="absolute top-5 right-5 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Tutup">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-sky-500 to-emerald-400 flex items-center justify-center text-white font-black text-xl shadow-md shadow-indigo-500/25">
+          C
+        </div>
+        <div>
+          <h2 class="text-xl font-bold text-white">Tentang Conferti</h2>
+          <p class="text-xs text-slate-400">Solusi Modern Optimasi Format Media Website</p>
+        </div>
+      </div>
+
+      <div class="space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+        <p>
+          <strong class="text-white">Conferti</strong> adalah platform pengoptimalan aset media web berkecepatan tinggi yang dapat diakses secara gratis. Didesain secara khusus untuk memenuhi standar performa web modern (<strong class="text-indigo-300">Google Core Web Vitals & PageSpeed</strong>) dengan mengonversi gambar dan video ke format generasi terbaru: <strong class="text-indigo-400">WebP</strong>, <strong class="text-sky-400">AVIF</strong>, dan <strong class="text-emerald-400">WebM</strong>.
+        </p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          <div class="p-3.5 rounded-xl bg-slate-800/70 border border-slate-700/60">
+            <h4 class="font-semibold text-slate-200 text-xs mb-1 flex items-center gap-1.5">
+              <span class="text-emerald-400">🛡️</span> 100% Client-Side Privacy
+            </h4>
+            <p class="text-[11px] text-slate-400">Seluruh proses berjalan di memori browser Anda. File gambar & video Anda tidak pernah dikirim ke server mana pun.</p>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-800/70 border border-slate-700/60">
+            <h4 class="font-semibold text-slate-200 text-xs mb-1 flex items-center gap-1.5">
+              <span class="text-indigo-400">⚡</span> Batch Tanpa Batas &gt;1 GB
+            </h4>
+            <p class="text-[11px] text-slate-400">Antrean sekuensial cerdas dengan pembersihan memori GPU/VRAM membuat pemrosesan ratusan file besar tetap stabil tanpa crash.</p>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-800/70 border border-slate-700/60">
+            <h4 class="font-semibold text-slate-200 text-xs mb-1 flex items-center gap-1.5">
+              <span class="text-sky-400">🎯</span> Kompresi Cerdas & Pasti Berkurang
+            </h4>
+            <p class="text-[11px] text-slate-400">Bitrate diukur dinamis dari bitrate asli file Anda, menjamin ukuran selalu terpotong hemat tanpa membuat file membengkak.</p>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-800/70 border border-slate-700/60">
+            <h4 class="font-semibold text-slate-200 text-xs mb-1 flex items-center gap-1.5">
+              <span class="text-amber-400">📦</span> Unduh Fleksibel Sekali Klik
+            </h4>
+            <p class="text-[11px] text-slate-400">Tersedia tombol satu paket arsip ZIP serta opsi unduh langsung berurutan otomatis ke folder Downloads komputer Anda.</p>
+          </div>
+        </div>
+
+        <div class="pt-4 border-t border-slate-800">
+          <h4 class="font-semibold text-slate-200 text-xs mb-1">Pengembang & Pembuat</h4>
+          <p class="text-xs text-slate-400">
+            Aplikasi ini dirancang dan dikembangkan dengan dedikasi oleh <strong class="text-slate-200">Muhammad Syaiful Mukmin</strong> untuk membantu komunitas pengembang web mendapatkan alat bantu konversi media web yang cepat, bersih, dan sepenuhnya privat.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
+        <a href="about.html" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Buka Halaman Penuh &rarr;</a>
+        <button id="closeAboutModalBtn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Pertanyaan Umum (FAQ) -->
+  <div id="faqModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <button id="closeFaqBtn" class="absolute top-5 right-5 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Tutup">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-500 flex items-center justify-center text-white font-black text-xl shadow-md shadow-sky-500/25">
+          ?
+        </div>
+        <div>
+          <h2 class="text-xl font-bold text-white">Pertanyaan Umum (FAQ)</h2>
+          <p class="text-xs text-slate-400">Panduan & jawaban seputar penggunaan Conferti</p>
+        </div>
+      </div>
+
+      <!-- FAQ Items -->
+      <div class="space-y-3 text-xs sm:text-sm">
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-indigo-300 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Kenapa harus menggunakan format WebP untuk website?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            WebP adalah format standar emas web masa kini dari Google. Ukurannya 25%–35% lebih hemat dari JPG/PNG pada ketajaman yang sama, mendukung transparansi alpha, dan loading lebih instan sehingga skor Google PageSpeed website Anda meningkat tajam.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-sky-300 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Kapan sebaiknya memilih AVIF dibandingkan WebP?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            AVIF berbasis video codec AV1 dengan kompresi hingga 50% lebih kecil dari JPG dan 20% lebih hemat dari WebP pada foto kompleks. Gunakan AVIF untuk ukuran file paling minim, atau gunakan WebP untuk kecepatan kompresi kilat dan dukungan universal 97%+ peramban.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-emerald-400 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Apakah transparansi (PNG transparan) tetap utuh saat diubah ke WebP?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            <strong>Ya, 100% terjaga!</strong> WebP sepenuhnya mendukung transparansi 8-bit alpha channel. Logo, stiker, dan ikon transparan Anda akan tetap bersih tanpa latar belakang, namun dengan ukuran file jauh lebih ringkas.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-indigo-300 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Apakah file saya aman dan rahasia? Apakah diunggah ke server?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            <strong>100% Privat & Aman!</strong> Conferti bekerja dengan arsitektur <em>Zero-Upload</em>. Pemrosesan gambar dan video murni dilakukan oleh memori dan kartu grafis browser Anda sendiri. Tidak ada satu pun bit data yang dikirim ke internet.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-sky-300 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Mengapa ukuran file sekarang dijamin pasti berkurang dan tidak bertambah?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            Conferti menggunakan formula bitrate adaptif cerdas yang mengukur bitrate bawaan file asli Anda. Target bitrate encoding selalu dikunci di bawah bitrate aslinya (misalnya ~65% pada kualitas 80%), sehingga file dijamin selalu berkurang dan tidak akan membengkak.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-amber-400 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Berapa nilai slider "Kualitas Kompresi" yang paling disarankan?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            Untuk sebagian besar website, preset <strong>⚖️ Seimbang (70%)</strong> adalah yang terbaik (hemat 50%–70% tanpa penurunan visual kentara). Gunakan <strong>💎 Standar (80%)</strong> untuk foto portfolio beresolusi tinggi, atau <strong>🚀 Ekstrem (55%)</strong> untuk performa loading super cepat.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-indigo-300 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Kapan tombol "Unduh Semua" dan "Unduh ZIP" baru aktif?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            Tombol unduh massal baru aktif setelah seluruh file antrean selesai dikonversi 100% agar paket unduhan Anda lengkap. Jika membutuhkan satu file lebih cepat, tombol "Unduh" per baris dapat langsung diklik kapan saja.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-purple-400 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Kapan harus menggunakan "Web Video (.webm)" vs "Animasi WebP (.webp)"?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            • <strong>Web Video (.webm):</strong> Untuk video rapat, presentasi, atau tutorial dengan audio penuh.<br>
+            • <strong>Animasi WebP (.webp):</strong> Untuk stiker animasi, hero banner, atau preview looping tanpa suara pengganti GIF yang boros kuota.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-emerald-400 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Bagaimana cara kerja fitur "Maks Dimensi" (Resize)?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            Fitur ini secara otomatis mengecilkan foto kamera resolusi tinggi (misal 4K/8K) ke ukuran maksimal layar web (1920px atau 1280px) secara proporsional sebelum dikompresi, memangkas ukuran file hingga 80% ekstra tanpa pecah.
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/70">
+          <h4 class="font-semibold text-rose-400 text-xs sm:text-sm mb-1.5 flex items-center gap-2">
+            <span>❓</span> Apakah Conferti mampu memproses ratusan file atau file &gt;1 GB?
+          </h4>
+          <p class="text-slate-300 leading-relaxed text-xs">
+            Sangat sanggup! Antrean sekuensial hemat memori segera membersihkan alokasi canvas RAM/VRAM setelah setiap file selesai, menjaga peramban tetap ringan dan bebas dari tab crash.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
+        <a href="faq.html" class="text-xs text-sky-400 hover:text-sky-300 font-medium">Buka Halaman FAQ Penuh &rarr;</a>
+        <button id="closeFaqModalBtn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Dokumentasi Lisensi -->
+  <div id="licenseModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-xl w-full p-6 sm:p-7 shadow-2xl relative max-h-[85vh] overflow-y-auto">
+      <button id="closeLicenseBtn" class="absolute top-5 right-5 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Tutup">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-indigo-600 flex items-center justify-center text-white text-lg font-bold shadow-md shadow-emerald-500/20">
+          📜
+        </div>
+        <div>
+          <h2 class="text-lg font-bold text-white">Lisensi Perangkat Lunak</h2>
+          <p class="text-xs text-slate-400">Dokumentasi Hak Cipta & Lisensi Resmi</p>
+        </div>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-300 leading-relaxed font-mono bg-slate-950/70 p-4 rounded-xl border border-slate-800">
+        <p class="text-emerald-400 font-bold">Lisensi Terbuka Conferti</p>
+        <p>Hak Cipta &copy; 2026 Muhammad Syaiful Mukmin. Seluruh hak cipta dilindungi undang-undang.</p>
+        <p class="text-slate-400 text-[11px] leading-relaxed">
+          Izin diberikan secara cuma-cuma kepada siapa saja untuk menggunakan, memodifikasi, dan memanfaatkan perangkat lunak ini untuk keperluan pribadi maupun komersial, dengan tetap menyertakan atribusi nama pembuat asli.
+        </p>
+        <p class="text-slate-500 text-[10px]">
+          Perangkat lunak ini disediakan apa adanya, tanpa jaminan garansi apa pun atas risiko teknis perangkat keras atau jaringan pengguna.
+        </p>
+      </div>
+
+      <div class="mt-5 pt-3 border-t border-slate-800 flex justify-end">
+        <button id="closeLicenseModalBtn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- Module Script -->
   <script type="module" src="index.js"></script>
