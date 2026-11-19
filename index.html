@@ -59,7 +59,15 @@
             <option value="webp" selected>WebP (.webp) — Standar Web Cepat & Universal</option>
             <option value="avif">AVIF (.avif) — Kompresi Ekstrem Ukuran Terkecil</option>
           </select>
-          <p class="text-[11px] text-slate-400 mt-1.5">Berlaku untuk file foto / gambar yang diupload.</p>
+          <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+            <label for="imageMaxDimSelect" class="shrink-0">Maks Dimensi:</label>
+            <select id="imageMaxDimSelect" class="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200">
+              <option value="1920" selected>Maks 1920px (Standar Web)</option>
+              <option value="1280">Maks 1280px (Hemat)</option>
+              <option value="800">Maks 800px (Sangat Kecil)</option>
+              <option value="original">Asli (Tanpa Resize)</option>
+            </select>
+          </div>
         </div>
 
         <!-- Pilihan Mode Konversi Video -->
@@ -79,14 +87,34 @@
 
       <!-- Slider Kualitas & Pengaturan Lanjutan -->
       <div class="pt-3 border-t border-slate-700/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <!-- Slider Kualitas -->
+        <!-- Slider Kualitas & Preset Cepat -->
         <div class="flex-1">
-          <div class="flex justify-between text-sm font-medium mb-1">
+          <div class="flex justify-between items-center text-sm font-medium mb-1">
             <label for="qualityRange" class="text-slate-300">Kualitas Kompresi</label>
-            <span id="qualityValue" class="text-indigo-400 font-bold">80%</span>
+            <div class="flex items-center gap-2">
+              <span id="qualityDescription" class="text-[11px] text-slate-400 font-normal">Keseimbangan Web</span>
+              <span id="qualityValue" class="text-indigo-400 font-bold text-sm">80%</span>
+            </div>
           </div>
+
+          <!-- Preset Cepat -->
+          <div class="flex flex-wrap items-center gap-1.5 mb-2.5">
+            <span class="text-[11px] text-slate-400 mr-1">Preset Cepat:</span>
+            <button type="button" id="presetExtreme" class="px-2.5 py-1 rounded bg-slate-900/90 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700 hover:border-indigo-400 transition">
+              🚀 Ekstrem (55% - Hemat 70%–90%)
+            </button>
+            <button type="button" id="presetBalanced" class="px-2.5 py-1 rounded bg-slate-900/90 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700 hover:border-indigo-400 transition">
+              ⚖️ Seimbang (70% - Hemat 50%–70%)
+            </button>
+            <button type="button" id="presetHigh" class="px-2.5 py-1 rounded bg-slate-900/90 hover:bg-slate-700 text-[11px] text-indigo-300 border border-indigo-500/40 hover:border-indigo-400 transition">
+              💎 Standar (80%)
+            </button>
+          </div>
+
           <input id="qualityRange" type="range" min="10" max="100" value="80" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500">
-          <p class="text-[11px] text-slate-400 mt-1">Rekomendasi: 75% - 85% untuk keseimbangan terbaik antara ukuran file dan ketajaman.</p>
+          <p class="text-[11px] text-slate-400 mt-1.5">
+            💡 <strong class="text-slate-300">Tips:</strong> 80% adalah ketajaman tinggi (hanya pangkas data duplikat). Jika ingin ukuran <strong>jauh lebih kecil lagi</strong>, gunakan preset <strong>Ekstrem (50%–65%)</strong>.
+          </p>
         </div>
 
         <!-- Opsi Video: FPS & Durasi (muncul untuk animasi webp) -->

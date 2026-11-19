@@ -6,6 +6,11 @@ const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const qualityRange = document.getElementById('qualityRange');
 const qualityValue = document.getElementById('qualityValue');
+const qualityDescription = document.getElementById('qualityDescription');
+const presetExtreme = document.getElementById('presetExtreme');
+const presetBalanced = document.getElementById('presetBalanced');
+const presetHigh = document.getElementById('presetHigh');
+const imageMaxDimSelect = document.getElementById('imageMaxDimSelect');
 const imageFormatSelect = document.getElementById('imageFormatSelect');
 const videoModeSelect = document.getElementById('videoModeSelect');
 const videoExtraSettings = document.getElementById('videoExtraSettings');
@@ -159,10 +164,39 @@ imageFormatSelect.addEventListener('change', () => {
   refreshQueueFilenames();
 });
 
+// Fungsi pembaruan label & deskripsi kualitas
+function updateQualityDisplay(val) {
+  qualityRange.value = val;
+  qualityValue.textContent = `${val}%`;
+  if (!qualityDescription) return;
+
+  if (val <= 55) {
+    qualityDescription.textContent = 'Kompresi Ekstrem (Paling Ringan)';
+    qualityDescription.className = 'text-[11px] text-amber-400 font-semibold';
+  } else if (val <= 74) {
+    qualityDescription.textContent = 'Keseimbangan Web (Ideal)';
+    qualityDescription.className = 'text-[11px] text-emerald-400 font-semibold';
+  } else {
+    qualityDescription.textContent = 'Kualitas Tinggi (Ketajaman Penuh)';
+    qualityDescription.className = 'text-[11px] text-indigo-400 font-semibold';
+  }
+}
+
 // Update label kualitas slider
 qualityRange.addEventListener('input', (e) => {
-  qualityValue.textContent = `${e.target.value}%`;
+  updateQualityDisplay(parseInt(e.target.value, 10));
 });
+
+// Event listener preset tombol cepat
+if (presetExtreme) {
+  presetExtreme.addEventListener('click', () => updateQualityDisplay(55));
+}
+if (presetBalanced) {
+  presetBalanced.addEventListener('click', () => updateQualityDisplay(70));
+}
+if (presetHigh) {
+  presetHigh.addEventListener('click', () => updateQualityDisplay(80));
+}
 
 // Hitung nama target berdasarkan format yang dipilih
 function computeTargetFilename(item) {
@@ -582,17 +616,17 @@ function updateGlobalStats() {
 }
 
 // -------------------------------------------------------------
-// KONVERSI GAMBAR (DENGAN PEMBERSIHAN MEMORI GPU/VRAM)
+// KONVERSI GAMBAR (DENGAN PEMBERSIHAN MEMORI GPU/VRAM & RESIZE WEB)
 // -------------------------------------------------------------
-async function convertImageToWebP(file, quality) {
+async function convertImageToWebP(file, quality, maxDim = '1920') {
   const bitmap = await createImageBitmap(file);
   let w = bitmap.width;
   let h = bitmap.height;
 
-  // Batas kanvas aman browser (maks 16.384px) agar tidak out-of-memory
-  const MAX_DIM = 16384;
-  if (w > MAX_DIM || h > MAX_DIM) {
-    const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+  // Batas maksimal dimensi untuk web
+  const limit = maxDim === 'original' ? 16384 : Math.min(parseInt(maxDim, 10) || 1920, 16384);
+  if (w > limit || h > limit) {
+    const ratio = Math.min(limit / w, limit / h);
     w = Math.round(w * ratio);
     h = Math.round(h * ratio);
   }
@@ -620,7 +654,7 @@ async function convertImageToWebP(file, quality) {
 }
 
 // Konversi Gambar ke AVIF (menggunakan WebAssembly @jsquash/avif)
-async function convertImageToAvif(file, quality) {
+async function convertImageToAvif(file, quality, maxDim = '1920') {
   if (!avifEncodeModule) {
     const mod = await import('https://esm.sh/@jsquash/avif@1.3.0/encode');
     avifEncodeModule = mod.default;
@@ -630,9 +664,9 @@ async function convertImageToAvif(file, quality) {
   let w = bitmap.width;
   let h = bitmap.height;
 
-  const MAX_DIM = 8192; // Batas aman encode AVIF
-  if (w > MAX_DIM || h > MAX_DIM) {
-    const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+  const limit = maxDim === 'original' ? 8192 : Math.min(parseInt(maxDim, 10) || 1920, 8192);
+  if (w > limit || h > limit) {
+    const ratio = Math.min(limit / w, limit / h);
     w = Math.round(w * ratio);
     h = Math.round(h * ratio);
   }
@@ -939,8 +973,9 @@ async function convertVideoToWebM(file, quality = 80, onProgress) {
           }
         }
 
-        // Bitrate adaptif berdasarkan slider kualitas kompresi
-        const videoBits = Math.round(500000 + (quality / 100) * 3500000);
+        // Bitrate adaptif yang benar-benar memangkas ukuran video web secara signifikan:
+        // 10% = ~280 kbps, 55% = ~780 kbps (hemat 70-90%), 70% = ~1.15 Mbps (hemat 50-70%), 80% = ~1.4 Mbps, 100% = ~2.0 Mbps
+        const videoBits = Math.round(250000 + Math.pow(quality / 100, 1.8) * 1750000);
         const recorder = new MediaRecorder(stream, {
           mimeType,
           videoBitsPerSecond: videoBits
@@ -991,6 +1026,7 @@ convertBtn.addEventListener('click', async () => {
 
   const quality = parseInt(qualityRange.value, 10);
   const imageFormat = imageFormatSelect.value;
+  const imageMaxDim = imageMaxDimSelect ? imageMaxDimSelect.value : '1920';
   const videoMode = videoModeSelect.value;
   const videoFps = parseInt(videoFpsSelect.value, 10);
   const videoDuration = parseInt(videoDurationSelect.value, 10);
@@ -1019,9 +1055,9 @@ convertBtn.addEventListener('click', async () => {
     try {
       if (item.type === 'image') {
         if (imageFormat === 'webp') {
-          item.resultBlob = await convertImageToWebP(item.file, quality);
+          item.resultBlob = await convertImageToWebP(item.file, quality, imageMaxDim);
         } else {
-          item.resultBlob = await convertImageToAvif(item.file, quality);
+          item.resultBlob = await convertImageToAvif(item.file, quality, imageMaxDim);
         }
       } else {
         // Video
