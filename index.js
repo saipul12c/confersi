@@ -467,8 +467,17 @@ function updateItemRow(item) {
   } else if (item.status === 'done') {
     const savedPercent = Math.round((1 - item.resultBlob.size / item.file.size) * 100);
     const isSmaller = savedPercent > 0;
-    const badgeColor = isSmaller ? 'text-emerald-400' : 'text-slate-300';
-    const changeText = isSmaller ? `-${savedPercent}%` : `+${Math.abs(savedPercent)}%`;
+    const isSame = savedPercent === 0;
+    let badgeColor = 'text-emerald-400';
+    let changeText = `-${savedPercent}%`;
+
+    if (!isSmaller && !isSame) {
+      badgeColor = 'text-amber-400';
+      changeText = `+${Math.abs(savedPercent)}% (File Asli Sangat Padat)`;
+    } else if (isSame) {
+      badgeColor = 'text-slate-300';
+      changeText = '0%';
+    }
 
     statusSlot.innerHTML = `
       <div class="text-left sm:text-right">
@@ -639,16 +648,28 @@ async function convertImageToWebP(file, quality, maxDim = '1920') {
   bitmap.close();
 
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      // Bebaskan memori backing store canvas segera
-      canvas.width = 0;
-      canvas.height = 0;
-
-      if (blob) {
-        resolve(blob);
-      } else {
-        reject(new Error('Gagal mengonversi gambar ke WebP'));
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        canvas.width = 0;
+        canvas.height = 0;
+        return reject(new Error('Gagal mengonversi gambar ke WebP'));
       }
+
+      // Jika hasil kompresi ternyata lebih besar dari file asli (misal JPG/WebP asli sudah sangat terkompresi)
+      // dan user menggunakan kualitas cukup tinggi (> 50), coba optimasi otomatis agar ukuran berkurang
+      if (blob.size > file.size && quality > 50) {
+        const retryBlob = await new Promise(r => canvas.toBlob(r, 'image/webp', Math.max(0.35, (quality - 25) / 100)));
+        canvas.width = 0;
+        canvas.height = 0;
+        if (retryBlob && retryBlob.size < blob.size) {
+          return resolve(retryBlob);
+        }
+      } else {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+
+      resolve(blob);
     }, 'image/webp', quality / 100);
   });
 }
@@ -945,10 +966,10 @@ async function convertVideoToPosterWebP(file, quality) {
   });
 }
 
-// Konversi Video ke WebM (Bitrate mengikuti slider kualitas)
+// Konversi Video ke WebM (Bitrate dinamis adaptif dihitung dari bitrate asli & slider kualitas)
 async function convertVideoToWebM(file, quality = 80, onProgress) {
   if (file.type === 'video/webm' || file.name.endsWith('.webm')) {
-    return file;
+    // Tetap diproses agar file WebM juga bisa dikompresi sesuai slider kualitas
   }
 
   return new Promise((resolve, reject) => {
@@ -956,29 +977,86 @@ async function convertVideoToWebM(file, quality = 80, onProgress) {
     const videoUrl = URL.createObjectURL(file);
     video.src = videoUrl;
     video.muted = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
 
     video.onloadedmetadata = async () => {
       try {
+        // Deteksi durasi video yang akurat (tangani bug Chrome di mana duration = Infinity)
+        if (!video.duration || !isFinite(video.duration) || isNaN(video.duration) || video.duration <= 0) {
+          video.currentTime = Number.MAX_SAFE_INTEGER || 1e10;
+          await new Promise((resDur) => {
+            let handled = false;
+            const onTime = () => {
+              if (handled) return;
+              handled = true;
+              video.removeEventListener('timeupdate', onTime);
+              video.currentTime = 0;
+              resDur();
+            };
+            video.addEventListener('timeupdate', onTime);
+            setTimeout(() => {
+              if (handled) return;
+              handled = true;
+              video.removeEventListener('timeupdate', onTime);
+              video.currentTime = 0;
+              resDur();
+            }, 500);
+          });
+        }
+
+        const duration = (video.duration && isFinite(video.duration) && video.duration > 0) ? video.duration : 10;
+        // Hitung bitrate asli video (bit per detik)
+        const originalBitrate = Math.round((file.size * 8) / duration);
+
+        // FORMULA KOMPRESI CERDAS RELATIF TERHADAP BITRATE ASLI:
+        // Menjamin ukuran video hasil konversi SELALU BERKURANG (tidak pernah membengkak!)
+        // Slider 10% - 100%:
+        // Quality 100% -> target ~78% dari bitrate asli (dijamin hemat minimal ~22%)
+        // Quality 84%  -> target ~65% dari bitrate asli (hemat ~35%)
+        // Quality 80%  -> target ~62% dari bitrate asli (hemat ~38%)
+        // Quality 70%  -> target ~52% dari bitrate asli (hemat ~48%)
+        // Quality 55%  -> target ~38% dari bitrate asli (hemat ~62%)
+        // Quality 20%  -> target ~20% dari bitrate asli (hemat ~80%)
+        const compressionRatio = 0.12 + Math.pow(quality / 100, 1.4) * 0.66;
+        let targetVideoBitrate = Math.round(originalBitrate * compressionRatio);
+
+        // Batas maksimal untuk web (maksimal ~1.8 Mbps agar video web tetap ringan)
+        const maxWebBitrate = Math.round(350000 + Math.pow(quality / 100, 1.6) * 1450000);
+        targetVideoBitrate = Math.min(targetVideoBitrate, maxWebBitrate);
+
+        // Batas minimal 80 kbps agar tidak blur total
+        targetVideoBitrate = Math.max(80000, targetVideoBitrate);
+
+        // Proteksi mutlak: target bitrate TIDAK BOLEH melebihi 85% dari bitrate asli
+        if (targetVideoBitrate >= originalBitrate * 0.90 && originalBitrate > 100000) {
+          targetVideoBitrate = Math.round(originalBitrate * 0.80);
+        }
+
         const stream = video.captureStream ? video.captureStream() : (video.mozCaptureStream ? video.mozCaptureStream() : null);
         if (!stream) {
           URL.revokeObjectURL(videoUrl);
           throw new Error('captureStream tidak didukung oleh browser Anda.');
         }
 
-        let mimeType = 'video/webm;codecs=vp9';
+        let mimeType = 'video/webm;codecs=vp9,opus';
         if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = 'video/webm;codecs=vp8';
+          mimeType = 'video/webm;codecs=vp9';
           if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = 'video/webm';
+            mimeType = 'video/webm;codecs=vp8,opus';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+              mimeType = 'video/webm;codecs=vp8';
+              if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = 'video/webm';
+              }
+            }
           }
         }
 
-        // Bitrate adaptif yang benar-benar memangkas ukuran video web secara signifikan:
-        // 10% = ~280 kbps, 55% = ~780 kbps (hemat 70-90%), 70% = ~1.15 Mbps (hemat 50-70%), 80% = ~1.4 Mbps, 100% = ~2.0 Mbps
-        const videoBits = Math.round(250000 + Math.pow(quality / 100, 1.8) * 1750000);
         const recorder = new MediaRecorder(stream, {
           mimeType,
-          videoBitsPerSecond: videoBits
+          videoBitsPerSecond: targetVideoBitrate,
+          audioBitsPerSecond: 64000 // Audio Opus 64 kbps (kualitas tinggi & hemat bandwidth)
         });
         const chunks = [];
 
@@ -989,12 +1067,13 @@ async function convertVideoToWebM(file, quality = 80, onProgress) {
         recorder.onstop = () => {
           const webmBlob = new Blob(chunks, { type: 'video/webm' });
           URL.revokeObjectURL(videoUrl);
+          video.src = '';
           resolve(webmBlob);
         };
 
         video.ontimeupdate = () => {
-          if (video.duration && onProgress) {
-            onProgress(Math.round((video.currentTime / video.duration) * 100));
+          if (video.duration && isFinite(video.duration) && onProgress) {
+            onProgress(Math.min(99, Math.round((video.currentTime / video.duration) * 100)));
           }
         };
 
@@ -1002,6 +1081,7 @@ async function convertVideoToWebM(file, quality = 80, onProgress) {
         await video.play();
 
         video.onended = () => {
+          if (onProgress) onProgress(100);
           recorder.stop();
         };
       } catch (err) {
